@@ -2,7 +2,7 @@ dataset_name: sesoko
 
 rgb_hz: 30.0
 url_download_root: "https://squidle.org"
-api_token: ""
+api_token: "efddbdc686dbd93e5b2d97e90d0f26c2fbc19a153308b5020a6bc63a"
 modes: ['mono']
 cam_models: ['pinhole']
 target_resolution: [640, 480]

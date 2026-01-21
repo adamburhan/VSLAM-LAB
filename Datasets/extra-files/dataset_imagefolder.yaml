@@ -1,8 +1,8 @@
 dataset_name: imagefolder
 
-resolution_scale: 0.1
-rgb_hz: 10.0
-dataset_folder_raw: "/path/to/image/folder"
+resolution_scale: 1.0
+rgb_hz: 60.0
+dataset_folder_raw: "/home/adamb14/scratch/VSLAM-LAB-Benchmark/test"
 
 sequence_names:
-  - subfolder_1
+  - seq0

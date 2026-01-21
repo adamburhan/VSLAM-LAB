@@ -44,8 +44,8 @@ class REPLICA_dataset(DatasetVSLAMLab):
         download_url = self.url_download_root
 
         # Constants
-        compressed_file = VSLAMLAB_BENCHMARK / compressed_name_ext
-        decompressed_folder = VSLAMLAB_BENCHMARK / decompressed_name
+        compressed_file = Path(VSLAMLAB_BENCHMARK) / compressed_name_ext
+        decompressed_folder = Path(VSLAMLAB_BENCHMARK) / decompressed_name
 
         # Download the compressed file
         if not compressed_file.exists():
@@ -53,7 +53,7 @@ class REPLICA_dataset(DatasetVSLAMLab):
 
         if (not decompressed_folder.is_dir()) or (next(decompressed_folder.iterdir(), None) is None):
             decompressFile(compressed_file, VSLAMLAB_BENCHMARK)
-            os.rename(VSLAMLAB_BENCHMARK / 'Replica', decompressed_folder)
+            os.rename(Path(VSLAMLAB_BENCHMARK) / 'Replica', decompressed_folder)
 
     def create_rgb_folder(self, sequence_name: str) -> None:
         sequence_path = self.dataset_path / sequence_name

@@ -43,4 +43,6 @@ configs/exp_demo.yaml
 #VSCode
 .vscode/
 
-app.log
+app.logDatasets/dataset_test.py
+Datasets/dataset_test.yaml
+configs/config_test.yaml

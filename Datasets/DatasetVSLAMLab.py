@@ -12,6 +12,8 @@ DatasetVSLAMLab: A class to handle Visual SLAM dataset-related operations.
 
 import sys
 import yaml
+import shutil
+import subprocess
 from loguru import logger
 from pathlib import Path
 from typing import List, Union
@@ -82,6 +84,9 @@ class DatasetVSLAMLab(ABC):
         if sequence_availability == "available":
             #print(f"{SCRIPT_LABEL}Sequence {self.dataset_color}{sequence_name}:\033[92m downloaded\033[0m")
             return
+        if sequence_availability == "zipped":
+            # print(f"{SCRIPT_LABEL}Sequence {self.dataset_color}{sequence_name}:\033[92m zipped and available\033[0m")
+            return
         if sequence_availability == "corrupted":
             logger.error(f"\n{ws(4)}Files in sequence {sequence_name} are corrupted.\n{ws(4)}Removing and downloading again sequence {sequence_name}.\n{ws(4)}THIS PART OF THE CODE IS NOT YET IMPLEMENTED. REMOVE THE FILES MANUALLY ")
             sys.exit(1)
@@ -100,6 +105,42 @@ class DatasetVSLAMLab(ABC):
         self.create_calibration_yaml(sequence_name)
         self.create_groundtruth_csv(sequence_name)
         self.remove_unused_files(sequence_name)
+
+        #self.zip_sequence_folder(sequence_name)
+
+    def zip_sequence_folder(self, sequence_name: str) -> None:
+        """
+        Zips the sequence folder using system zip (efficient for inode usage)
+        and removes the original directory ONLY if zipping succeeds.
+        """
+        msg = f"Zipping sequence {self.dataset_color}{sequence_name}\033[0m to save inodes..."
+        print_msg(SCRIPT_LABEL, msg)
+
+        sequence_path = self.dataset_path / sequence_name
+        zip_file = self.dataset_path / f"{sequence_name}.zip"
+
+        try:
+            # 1. Run zip -r -q (Quiet Recursive)
+            # cwd=self.dataset_path ensures the zip contains the folder structure 'sequence_name/...'
+            cmd_zip = ["zip", "-r", "-q", f"{sequence_name}.zip", sequence_name]
+            subprocess.run(cmd_zip, cwd=self.dataset_path, check=True)
+
+            # 2. (Optional) Integrity Check similar to your script
+            # cmd_check = ["unzip", "-t", "-q", f"{sequence_name}.zip"]
+            # subprocess.run(cmd_check, cwd=self.dataset_path, check=True)
+
+            # 3. Remove original folder if file exists
+            if zip_file.is_file():
+                shutil.rmtree(sequence_path)
+                # logger.info(f"Successfully zipped and removed {sequence_name}")
+            else:
+                logger.error(f"Zip file for {sequence_name} was not created! Keeping original data.")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Zipping failed for {sequence_name}. Error: {e}")
+            # Do NOT delete original files if zip fails
+        except Exception as e:
+            logger.error(f"Unexpected error zipping {sequence_name}: {e}")
 
     ####################################################################################################################
     # Auxiliary methods
@@ -129,12 +170,17 @@ class DatasetVSLAMLab(ABC):
 
     def check_sequence_availability(self, sequence_name: str, verbose: bool = True) -> str:
         sequence_path = self.dataset_path / sequence_name
+        zip_path = self.dataset_path / f"{sequence_name}.zip"
         if sequence_path.is_dir():
             sequence_complete = self.check_sequence_integrity(sequence_name, verbose=verbose)
             if sequence_complete:
                 return "available"
             else:
                 return "corrupted"
+
+        if zip_path.is_file():
+            return "zipped"
+
         return "non-available"
 
     def check_sequence_integrity(self, sequence_name: str, verbose: bool) -> bool:

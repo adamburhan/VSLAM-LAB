@@ -19,11 +19,13 @@ sequence_names:
   - desk_changing_1
   - einstein_1
   - einstein_2
+  - einstein_dark
   - einstein_flashlight
   - einstein_global_light_changes_1
   - einstein_global_light_changes_2
   - einstein_global_light_changes_3
   - kidnap_1
+  - kidnap_dark
   - large_loop_1
   - mannequin_1
   - mannequin_3
@@ -42,6 +44,7 @@ sequence_names:
   - plant_3
   - plant_4
   - plant_5
+  - plant_dark
   - plant_scene_1
   - plant_scene_2
   - plant_scene_3
@@ -56,40 +59,43 @@ sequence_names:
   - sofa_2
   - sofa_3
   - sofa_4
+  - sofa_dark_1
+  - sofa_dark_2
+  - sofa_dark_3
   - sofa_shake
   - table_3
   - table_4
   - table_7
   - vicon_light_1
   - vicon_light_2  
-  - boxes
-  - buddha
-  - cables_4
-  - cables_5
-  - desk_1
-  - desk_2
-  - desk_changing_2
-  - desk_global_light_changes
-  - desk_ir_light
-  - dino
-  - drone
-  - foreground_occlusion
-  - helmet
-  - kidnap_2
-  - lamp
-  - large_loop_2
-  - large_loop_3
-  - large_non_loop
-  - motion_2
-  - motion_3
-  - motion_4
-  - planar_1
-  - reflective_2
-  - scale_change
-  - table_1
-  - table_2
-  - table_5
-  - table_6
-  - table_global_light_changes
-  - table_local_light_changes
-  - table_scene
+  # - boxes
+  # - buddha
+  # - cables_4
+  # - cables_5
+  # - desk_1
+  # - desk_2
+  # - desk_changing_2
+  # - desk_global_light_changes
+  # - desk_ir_light
+  # - dino
+  # - drone
+  # - foreground_occlusion
+  # - helmet
+  # - kidnap_2
+  # - lamp
+  # - large_loop_2
+  # - large_loop_3
+  # - large_non_loop
+  # - motion_2
+  # - motion_3
+  # - motion_4
+  # - planar_1
+  # - reflective_2
+  # - scale_change
+  # - table_1
+  # - table_2
+  # - table_5
+  # - table_6
+  # - table_global_light_changes
+  # - table_local_light_changes
+  # - table_scene

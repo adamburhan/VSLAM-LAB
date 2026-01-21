@@ -1,17 +1,17 @@
-exp_demo_droidslam:
-  Config: config_vslamlab.yaml
-  NumRuns: 1
-  Parameters: {verbose: 1, rgb_idx: [0,250]}
-  Module: droidslam
+#exp_demo_droidslam:
+#  Config: config_vslamlab.yaml
+#  NumRuns: 1
+#  Parameters: {verbose: 1, rgb_idx: [0,250]}
+#  Module: droidslam
 
 exp_demo_orbslam2:
-  Config: config_vslamlab.yaml
+  Config: config_test.yaml
   NumRuns: 1
-  Parameters: {verbose: 1, rgb_idx: [0,250]}
+  Parameters: {verbose: 0}
   Module: orbslam2
 
-exp_demo_glomap:
-  Config: config_vslamlab.yaml
-  NumRuns: 1
-  Parameters: {verbose: 1, rgb_idx: [0,250], matcher_type: exhaustive}
-  Module: glomap
+#exp_demo_glomap:
+#  Config: config_vslamlab.yaml
+#  NumRuns: 1
+#  Parameters: {verbose: 1, rgb_idx: [0,250], matcher_type: exhaustive}
+#  Module: glomap

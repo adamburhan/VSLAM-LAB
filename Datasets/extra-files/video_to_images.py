@@ -4,9 +4,9 @@ import argparse
 
 # Set up argument parser
 parser = argparse.ArgumentParser(description='Extract frames from a video.')
-parser.add_argument('video_path', type=str, help='Path to the video file')
-parser.add_argument('output_folder', type=str, help='Folder to save the extracted frames')
-parser.add_argument('frequency', type=float, help='Maximum frequency (in Hz) to extract frames')
+parser.add_argument('--video_path', type=str, help='Path to the video file')
+parser.add_argument('--output_folder', type=str, help='Folder to save the extracted frames')
+parser.add_argument('--frequency', type=float, help='Maximum frequency (in Hz) to extract frames')
 
 # Parse the arguments
 args = parser.parse_args()

@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 
 from path_constants import VSLAM_LAB_DIR
 from path_constants import VSLAMLAB_BENCHMARK
-from utilities import check_sequence_integrity
+#from utilities import check_sequence_integrity
 from utilities import ws
 
 # This script integrates an EXISTING and COMPLIANT dataset into VSLAM-LAB by creating a new dataset class: dataset_{
@@ -100,10 +100,10 @@ def main():
     replace_string_in_file(dataset_new_py, 'IMAGEFOLDER', DATASET_NAME)
 
     #
-    dataset_utilities_py = os.path.join(VSLAM_LAB_DIR, 'Datasets', 'dataset_utilities.py')
-    add_code_below_line(dataset_utilities_py, '# ADD your imports here',
+    get_dataset_py = os.path.join(VSLAM_LAB_DIR, 'Datasets', 'get_dataset.py')
+    add_code_below_line(get_dataset_py, '# ADD your imports here',
                         f'from Datasets.dataset_{dataset_name} import {DATASET_NAME}_dataset')
-    add_code_below_line(dataset_utilities_py, '# ADD your datasets here',
+    add_code_below_line(get_dataset_py, '# ADD your datasets here',
                         f'        "{dataset_name}": lambda: {DATASET_NAME}_dataset(benchmark_path),')
     #
     config_yaml = {}
