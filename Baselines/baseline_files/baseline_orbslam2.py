@@ -14,7 +14,7 @@ class ORBSLAM2_baseline(BaselineVSLAMLab):
 
     def __init__(self, baseline_name: str = 'orbslam2', baseline_folder: str = 'ORB-SLAM2') -> None:
         
-        default_parameters = {'verbose': 1, 'mode': 'mono', 
+        default_parameters = {'verbose': 0, 'mode': 'mono', 
                               'vocabulary': str(VSLAMLAB_BASELINES / baseline_folder / 'Vocabulary' / 'ORBvoc.txt')}
         
         # Initialize the baseline

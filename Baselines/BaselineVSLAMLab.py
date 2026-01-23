@@ -76,6 +76,9 @@ class BaselineVSLAMLab(ABC):
         if self.is_installed()[0]:
             return
 
+        # Ensure baseline directory exists before writing log file
+        self.baseline_path.mkdir(parents=True, exist_ok=True)
+        
         log_file_path = self.baseline_path / f'install_{self.baseline_name}.txt'
         install_command = f"pixi run --frozen -e {self.baseline_name} install -v"
         with open(log_file_path, 'w') as log_file:
