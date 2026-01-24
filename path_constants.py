@@ -6,10 +6,10 @@ from pathlib import Path
 VSLAM_LAB_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 VSLAM_LAB_PATH = Path(os.path.dirname(VSLAM_LAB_DIR))
 
-VSLAMLAB_BENCHMARK = "/localscratch/adamb14.20051346.0/VSLAM-LAB-Benchmark"
+VSLAMLAB_BENCHMARK = "/home/adamb14/scratch/VSLAM-LAB-Benchmark"
 VSLAMLAB_EVALUATION = VSLAM_LAB_PATH / 'VSLAM-LAB-Evaluation'
 VSLAMLAB_BASELINES = VSLAM_LAB_DIR / 'Baselines'
-VSLAMLAB_VIDEOS = "/localscratch/adamb14.20051346.0/VSLAM-LAB-Benchmark/VIDEOS"
+VSLAMLAB_VIDEOS = "/home/adamb14/scratch/VSLAM-LAB-Benchmark/VIDEOS"
 
 COMPARISONS_YAML_DEFAULT = VSLAM_LAB_DIR / 'configs' / 'comp_complete.yaml'
 EXP_YAML_DEFAULT = 'exp_debug.yaml'

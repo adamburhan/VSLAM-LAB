@@ -43,7 +43,8 @@ def evo_metric(metric, groundtruth_csv, trajectory_csv, evaluation_folder, max_t
         command = (f"evo_ape tum {gt_txt} {traj_txt} -va -as "
                    f"--t_max_diff {max_time_difference} --save_results {traj_zip}")
     if metric == 'rpe':
-        command = f"evo_rpe tum {gt_txt} {traj_txt} --all_pairs --delta 5 -va -as --save_results {traj_zip}"
+        traj_zip = traj_zip.replace(".zip", "_rpe.zip")
+        command = f"evo_rpe tum {gt_txt} {traj_txt} --all_pairs --delta 1 -va -as --save_results {traj_zip}"
 
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     _, _ = process.communicate()
@@ -51,39 +52,40 @@ def evo_metric(metric, groundtruth_csv, trajectory_csv, evaluation_folder, max_t
     if not os.path.exists(traj_zip):
         return [False, f"Zip file not created: {traj_zip}"]
 
-    # Write aligned trajectory
-    with zipfile.ZipFile(traj_zip, 'r') as zip_ref:
-        for file_name in zip_ref.namelist():
-            if file_name.endswith(traj_txt + '.tum'):
-                with zip_ref.open(file_name) as source_file:
-                    aligned_trajectory_file = os.path.join(evaluation_folder,
-                        os.path.basename(file_name).replace(".txt", ""))
-                    with open(aligned_trajectory_file, 'wb') as target_file:
-                        target_file.write(source_file.read())
-                break
+    if metric == 'ate':
+        # Write aligned trajectory
+        with zipfile.ZipFile(traj_zip, 'r') as zip_ref:
+            for file_name in zip_ref.namelist():
+                if file_name.endswith(traj_txt + '.tum'):
+                    with zip_ref.open(file_name) as source_file:
+                        aligned_trajectory_file = os.path.join(evaluation_folder,
+                            os.path.basename(file_name).replace(".txt", ""))
+                        with open(aligned_trajectory_file, 'wb') as target_file:
+                            target_file.write(source_file.read())
+                    break
 
-    aligned_trajectory = read_trajectory_txt(aligned_trajectory_file)
-    if aligned_trajectory is None:
-        return [False, f"Aligned trajectory file is empty: {aligned_trajectory_file}"]
-    aligned_trajectory.columns = ['ts', 'tx', 'ty', 'tz', 'qx', 'qy', 'qz', 'qw']
-    aligned_trajectory = aligned_trajectory.sort_values(by='ts')
-    save_trajectory_csv(aligned_trajectory_file, aligned_trajectory, header=True)
-    
-    # Write aligned gt
-    with zipfile.ZipFile(traj_zip, 'r') as zip_ref:
-        for file_name in zip_ref.namelist():
-            if file_name.endswith(gt_txt + '.tum'):
-                with zip_ref.open(file_name) as source_file:
-                    with open(gt_tum, 'wb') as target_file:
-                        target_file.write(source_file.read())
-                break
-    
-    aligned_gt = read_trajectory_txt(gt_tum)
-    if aligned_gt is None:
-        return [False, f"Aligned gt file is empty: {gt_tum}"]
-    aligned_gt.columns = ['ts', 'tx', 'ty', 'tz', 'qx', 'qy', 'qz', 'qw']
-    aligned_gt = aligned_gt.sort_values(by='ts')
-    save_trajectory_csv(gt_tum, aligned_gt, header=True)
+        aligned_trajectory = read_trajectory_txt(aligned_trajectory_file)
+        if aligned_trajectory is None:
+            return [False, f"Aligned trajectory file is empty: {aligned_trajectory_file}"]
+        aligned_trajectory.columns = ['ts', 'tx', 'ty', 'tz', 'qx', 'qy', 'qz', 'qw']
+        aligned_trajectory = aligned_trajectory.sort_values(by='ts')
+        save_trajectory_csv(aligned_trajectory_file, aligned_trajectory, header=True)
+        
+        # Write aligned gt
+        with zipfile.ZipFile(traj_zip, 'r') as zip_ref:
+            for file_name in zip_ref.namelist():
+                if file_name.endswith(gt_txt + '.tum'):
+                    with zip_ref.open(file_name) as source_file:
+                        with open(gt_tum, 'wb') as target_file:
+                            target_file.write(source_file.read())
+                    break
+        
+        aligned_gt = read_trajectory_txt(gt_tum)
+        if aligned_gt is None:
+            return [False, f"Aligned gt file is empty: {gt_tum}"]
+        aligned_gt.columns = ['ts', 'tx', 'ty', 'tz', 'qx', 'qy', 'qz', 'qw']
+        aligned_gt = aligned_gt.sort_values(by='ts')
+        save_trajectory_csv(gt_tum, aligned_gt, header=True)
 
     return [True, "Success"]
 
@@ -122,6 +124,20 @@ def evo_get_accuracy(zip_files, accuracy_csv):
     for zip_file in zip_files:
       os.remove(zip_file)
 
+
+def evo_get_rpe_errors(zip_files_rpe, rpe_csv):
+    for zip_file in zip_files_rpe:
+        command = (f"unzip -o {zip_file} -d {os.path.dirname(zip_file)}")
+        subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        errors = np.load(os.path.join(os.path.dirname(zip_file), "error_array.npy"))
+        timestamps = np.load(os.path.join(os.path.dirname(zip_file), "timestamps.npy"))
+
+        if os.path.exists(rpe_csv):
+            existing_data = pd.read_csv(rpe_csv)
+            os.remove(rpe_csv)
+        else:
+            rpe_df = pd.DataFrame(columns=['timestamp', '')
 
 def find_groundtruth_txt(trajectories_path, trajectory_file, parameter):
     ablation_parameters_csv = os.path.join(trajectories_path, ABLATION_PARAMETERS_CSV)

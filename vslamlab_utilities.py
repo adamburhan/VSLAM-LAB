@@ -9,7 +9,7 @@ from utilities import ws, load_yaml_file, print_msg, show_time, read_csv
 from Datasets.get_dataset import list_available_datasets, get_dataset
 from Baselines.get_baseline import list_available_baselines, get_baseline
 from Run.run_functions import run_sequence
-from Evaluate.evaluate_functions import evaluate_sequence
+from Evaluate.evaluate_functions import evaluate_sequence, evaluate_dataset
 from Evaluate import compare_functions
 from path_constants import VSLAMLAB_BENCHMARK, VSLAMLAB_EVALUATION, VSLAM_LAB_DIR, CONFIG_DEFAULT, VSLAMLAB_VIDEOS, COMPARISONS_YAML_DEFAULT
 
@@ -153,6 +153,9 @@ def evaluate_exp(exp_yaml: str | Path, overwrite: bool = False) -> None:
                         print_msg(f"\n{SCRIPT_LABEL}", f"Evaluating (in {VSLAMLAB_EVALUATION}) ...")
                         first_evaluation_found = False
                     evaluate_sequence(exp, dataset, sequence_name, overwrite)
+
+                # evaluate dataset-level metrics
+                evaluate_dataset(exp, dataset, overwrite)
 
 ##################################################################################################################################################
 # run_exp

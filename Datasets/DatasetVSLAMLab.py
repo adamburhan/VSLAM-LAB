@@ -106,7 +106,7 @@ class DatasetVSLAMLab(ABC):
         self.create_groundtruth_csv(sequence_name)
         self.remove_unused_files(sequence_name)
 
-        #self.zip_sequence_folder(sequence_name)
+        self.zip_sequence_folder(sequence_name)
 
     def zip_sequence_folder(self, sequence_name: str) -> None:
         """

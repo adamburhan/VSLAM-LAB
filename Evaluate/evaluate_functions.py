@@ -4,7 +4,7 @@ import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
 
-from Evaluate.evo_functions import evo_metric, evo_get_accuracy
+from Evaluate.evo_functions import evo_metric, evo_get_accuracy, evo_get_rpe_errors
 from path_constants import VSLAM_LAB_EVALUATION_FOLDER, TRAJECTORY_FILE_NAME, GROUNTRUTH_FILE
 from utilities import print_msg, ws, format_msg
 
@@ -20,6 +20,7 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
     groundtruth_csv = Path(exp.folder) / dataset.dataset_folder / sequence_name /  GROUNTRUTH_FILE
     evaluation_folder = os.path.join(exp.folder, dataset.dataset_folder, sequence_name, VSLAM_LAB_EVALUATION_FOLDER)
     accuracy_csv = os.path.join(evaluation_folder, f'{METRIC}.csv')
+    rpe_csv = os.path.join(evaluation_folder, f'rpe_errors.csv')
 
     # Load experiments log
     exp_log = pd.read_csv(exp.log_csv)
@@ -55,9 +56,25 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
     if len(zip_files) == 0:
         exp_log.to_csv(exp.log_csv, index=False)
         return   
+
+    zip_files_rpe = []
+    for exp_it in tqdm(runs_to_evaluate):
+        trajectory_file = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
+        success = evo_metric('rpe', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
+        if success[0]:
+            zip_files_rpe.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe.zip"))
+        else:
+            exp_log.loc[(exp_log["exp_it"] == int(exp_it)) & (exp_log["sequence_name"] == sequence_name),"EVALUATION"] = 'failed'
+            tqdm.write(format_msg(ws(8), f"{success[1]}", "error"))
+    if len(zip_files_rpe) == 0:
+        exp_log.to_csv(exp.log_csv, index=False)
+        return
     
     # Retrieve accuracies
     evo_get_accuracy(zip_files, accuracy_csv)
+
+    # Retrieve rpe errors
+    evo_get_rpe_errors(zip_files_rpe, rpe_csv)
 
     # Final Checks
     if not os.path.exists(accuracy_csv):
@@ -105,3 +122,5 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
     exp_log.to_csv(exp.log_csv, index=False)
     accuracy.to_csv(accuracy_csv, index=False)
 
+def evaluate_dataset(exp, dataset, overwrite=False):
+    pass
