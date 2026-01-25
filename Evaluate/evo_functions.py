@@ -42,9 +42,13 @@ def evo_metric(metric, groundtruth_csv, trajectory_csv, evaluation_folder, max_t
     if metric == 'ate':     
         command = (f"evo_ape tum {gt_txt} {traj_txt} -va -as "
                    f"--t_max_diff {max_time_difference} --save_results {traj_zip}")
-    if metric == 'rpe':
-        traj_zip = traj_zip.replace(".zip", "_rpe.zip")
-        command = f"evo_rpe tum {gt_txt} {traj_txt} --all_pairs --delta 1 -va -as --save_results {traj_zip}"
+    if metric == 'rpe_trans':
+        traj_zip = traj_zip.replace(".zip", "_rpe_trans.zip")
+        command = f"evo_rpe tum {gt_txt} {traj_txt} --all_pairs --delta 1 -va -as --save_results {traj_zip} -r trans_part"
+
+    if metric == 'rpe_rot':
+        traj_zip = traj_zip.replace(".zip", "_rpe_rot.zip")
+        command = f"evo_rpe tum {gt_txt} {traj_txt} --all_pairs --delta 1 -va -as --save_results {traj_zip} -r angle_deg"    
 
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     _, _ = process.communicate()
@@ -125,19 +129,137 @@ def evo_get_accuracy(zip_files, accuracy_csv):
       os.remove(zip_file)
 
 
-def evo_get_rpe_errors(zip_files_rpe, rpe_csv):
-    for zip_file in zip_files_rpe:
-        command = (f"unzip -o {zip_file} -d {os.path.dirname(zip_file)}")
-        subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        errors = np.load(os.path.join(os.path.dirname(zip_file), "error_array.npy"))
-        timestamps = np.load(os.path.join(os.path.dirname(zip_file), "timestamps.npy"))
-
-        if os.path.exists(rpe_csv):
-            existing_data = pd.read_csv(rpe_csv)
-            os.remove(rpe_csv)
-        else:
-            rpe_df = pd.DataFrame(columns=['timestamp', '')
+def evo_get_rpe_errors(zip_files_rpe_trans, zip_files_rpe_rot, rpe_csv):
+    """
+    Extract RPE (Relative Pose Error) data from zip files and save to CSV.
+    
+    Extracts translation and rotation RPE errors along with timestamps for 
+    detailed analysis, enabling correlation of high-error segments with 
+    sequence content.
+    
+    Parameters:
+    -----------
+    zip_files_rpe_trans : list
+        List of paths to RPE translation zip files
+    zip_files_rpe_rot : list
+        List of paths to RPE rotation zip files  
+    rpe_csv : str
+        Path to output CSV file containing RPE statistics
+    """
+    import json
+    
+    rpe_data = []
+    
+    # Process RPE translation zips
+    for zip_file in zip_files_rpe_trans:
+        if not os.path.exists(zip_file):
+            continue
+            
+        traj_name = os.path.basename(zip_file).replace('_rpe_trans.zip', '.txt')
+        extract_dir = os.path.join(os.path.dirname(zip_file), 'rpe_trans_temp')
+        
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            
+            # Load error array and timestamps
+            error_file = os.path.join(extract_dir, 'error_array.npy')
+            timestamps_file = os.path.join(extract_dir, 'timestamps.npy')
+            stats_file = os.path.join(extract_dir, 'stats.json')
+            
+            errors = np.load(error_file) if os.path.exists(error_file) else None
+            timestamps = np.load(timestamps_file) if os.path.exists(timestamps_file) else None
+            
+            if os.path.exists(stats_file):
+                with open(stats_file, 'r') as f:
+                    stats = json.load(f)
+            else:
+                stats = {}
+            
+            # Save detailed per-frame errors for failure analysis
+            if errors is not None and timestamps is not None:
+                detailed_csv = os.path.join(os.path.dirname(rpe_csv), 
+                    traj_name.replace('.txt', '_rpe_trans_detailed.csv'))
+                detailed_df = pd.DataFrame({
+                    'timestamp': timestamps,
+                    'rpe_trans': errors
+                })
+                detailed_df.to_csv(detailed_csv, index=False)
+            
+            # Aggregate stats for summary
+            rpe_entry = {
+                'traj_name': traj_name,
+                'rpe_trans_rmse': stats.get('rmse', np.sqrt(np.mean(errors**2)) if errors is not None else None),
+                'rpe_trans_mean': stats.get('mean', np.mean(errors) if errors is not None else None),
+                'rpe_trans_std': stats.get('std', np.std(errors) if errors is not None else None),
+                'rpe_trans_max': stats.get('max', np.max(errors) if errors is not None else None),
+                'rpe_trans_min': stats.get('min', np.min(errors) if errors is not None else None),
+                'rpe_trans_median': stats.get('median', np.median(errors) if errors is not None else None),
+                'rpe_trans_sse': stats.get('sse', np.sum(errors**2) if errors is not None else None),
+                'num_rpe_pairs': len(errors) if errors is not None else 0,
+            }
+            
+            # Find corresponding rotation zip
+            rot_zip = zip_file.replace('_rpe_trans.zip', '_rpe_rot.zip')
+            if os.path.exists(rot_zip):
+                rot_extract_dir = os.path.join(os.path.dirname(zip_file), 'rpe_rot_temp')
+                with zipfile.ZipFile(rot_zip, 'r') as zip_ref:
+                    zip_ref.extractall(rot_extract_dir)
+                
+                rot_error_file = os.path.join(rot_extract_dir, 'error_array.npy')
+                rot_stats_file = os.path.join(rot_extract_dir, 'stats.json')
+                rot_timestamps_file = os.path.join(rot_extract_dir, 'timestamps.npy')
+                
+                rot_errors = np.load(rot_error_file) if os.path.exists(rot_error_file) else None
+                rot_timestamps = np.load(rot_timestamps_file) if os.path.exists(rot_timestamps_file) else None
+                
+                if os.path.exists(rot_stats_file):
+                    with open(rot_stats_file, 'r') as f:
+                        rot_stats = json.load(f)
+                else:
+                    rot_stats = {}
+                
+                # Save detailed per-frame rotation errors
+                if rot_errors is not None and rot_timestamps is not None:
+                    detailed_rot_csv = os.path.join(os.path.dirname(rpe_csv),
+                        traj_name.replace('.txt', '_rpe_rot_detailed.csv'))
+                    detailed_rot_df = pd.DataFrame({
+                        'timestamp': rot_timestamps,
+                        'rpe_rot': rot_errors
+                    })
+                    detailed_rot_df.to_csv(detailed_rot_csv, index=False)
+                
+                rpe_entry['rpe_rot_rmse'] = rot_stats.get('rmse', np.sqrt(np.mean(rot_errors**2)) if rot_errors is not None else None)
+                rpe_entry['rpe_rot_mean'] = rot_stats.get('mean', np.mean(rot_errors) if rot_errors is not None else None)
+                rpe_entry['rpe_rot_std'] = rot_stats.get('std', np.std(rot_errors) if rot_errors is not None else None)
+                rpe_entry['rpe_rot_max'] = rot_stats.get('max', np.max(rot_errors) if rot_errors is not None else None)
+                rpe_entry['rpe_rot_min'] = rot_stats.get('min', np.min(rot_errors) if rot_errors is not None else None)
+                rpe_entry['rpe_rot_median'] = rot_stats.get('median', np.median(rot_errors) if rot_errors is not None else None)
+                
+                # Clean up rotation temp dir
+                shutil.rmtree(rot_extract_dir, ignore_errors=True)
+            
+            rpe_data.append(rpe_entry)
+            
+            # Clean up temp dir
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            
+        except Exception as e:
+            print(f"Error processing {zip_file}: {e}")
+            continue
+    
+    # Write summary CSV
+    if rpe_data:
+        rpe_df = pd.DataFrame(rpe_data)
+        rpe_df.to_csv(rpe_csv, index=False)
+    
+    # Clean up zip files
+    for zip_file in zip_files_rpe_trans:
+        if os.path.exists(zip_file):
+            os.remove(zip_file)
+    for zip_file in zip_files_rpe_rot:
+        if os.path.exists(zip_file):
+            os.remove(zip_file)
 
 def find_groundtruth_txt(trajectories_path, trajectory_file, parameter):
     ablation_parameters_csv = os.path.join(trajectories_path, ABLATION_PARAMETERS_CSV)

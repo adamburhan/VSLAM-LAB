@@ -8,3 +8,16 @@ cumulated_error: 0
 running_time: 0
 memory: 0
 
+# RPE analysis
+rpe_boxplot: 1
+rpe_report: 1
+rpe_histogram_sequence: 0
+rpe_histogram_dataset: 0
+rpe_rot_histogram_sequence: 0
+rpe_rot_histogram_dataset: 0
+
+# RPE detailed (per-frame error distributions - more useful!)
+rpe_detailed_histogram_sequence: 1
+rpe_detailed_histogram_dataset: 1
+rpe_rot_detailed_histogram_sequence: 1
+rpe_rot_detailed_histogram_dataset: 1

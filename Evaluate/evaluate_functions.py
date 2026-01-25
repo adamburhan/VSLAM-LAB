@@ -57,24 +57,37 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
         exp_log.to_csv(exp.log_csv, index=False)
         return   
 
-    zip_files_rpe = []
+    zip_files_rpe_trans = []
     for exp_it in tqdm(runs_to_evaluate):
         trajectory_file = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
-        success = evo_metric('rpe', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
+        success = evo_metric('rpe_trans', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
         if success[0]:
-            zip_files_rpe.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe.zip"))
+            zip_files_rpe_trans.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe_trans.zip"))
         else:
             exp_log.loc[(exp_log["exp_it"] == int(exp_it)) & (exp_log["sequence_name"] == sequence_name),"EVALUATION"] = 'failed'
             tqdm.write(format_msg(ws(8), f"{success[1]}", "error"))
-    if len(zip_files_rpe) == 0:
+    if len(zip_files_rpe_trans) == 0:
         exp_log.to_csv(exp.log_csv, index=False)
         return
-    
+
+    zip_files_rpe_rot = []
+    for exp_it in tqdm(runs_to_evaluate):
+        trajectory_file = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
+        success = evo_metric('rpe_rot', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
+        if success[0]:
+            zip_files_rpe_rot.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe_rot.zip"))
+        else:
+            exp_log.loc[(exp_log["exp_it"] == int(exp_it)) & (exp_log["sequence_name"] == sequence_name),"EVALUATION"] = 'failed'
+            tqdm.write(format_msg(ws(8), f"{success[1]}", "error"))
+    if len(zip_files_rpe_rot) == 0:
+        exp_log.to_csv(exp.log_csv, index=False)
+        return
+
     # Retrieve accuracies
     evo_get_accuracy(zip_files, accuracy_csv)
 
     # Retrieve rpe errors
-    evo_get_rpe_errors(zip_files_rpe, rpe_csv)
+    evo_get_rpe_errors(zip_files_rpe_trans, zip_files_rpe_rot, rpe_csv)
 
     # Final Checks
     if not os.path.exists(accuracy_csv):
