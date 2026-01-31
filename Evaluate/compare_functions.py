@@ -22,11 +22,8 @@ def full_comparison(experiments, VSLAMLAB_BENCHMARK, COMPARISONS_YAML_DEFAULT, c
 
     dataset_sequences, dataset_nicknames, dataset_rgbHz, exp_names, sequence_nicknames = get_experiments(experiments)
     accuracies = get_accuracies(experiments, dataset_sequences)
-    rpe_errors = get_rpe_errors(experiments, dataset_sequences)
-    
-    # Generate RPE reports for failure analysis
-    generate_rpe_report(rpe_errors, figures_path)
-   
+    rpe_kf_errors, rpe_cam_errors, tracking_stats = get_rpe_errors(experiments, dataset_sequences)
+     
     # Comparisons switch
     def switch_comparison(comparison_):
         switcher = {
@@ -44,25 +41,15 @@ def full_comparison(experiments, VSLAMLAB_BENCHMARK, COMPARISONS_YAML_DEFAULT, c
             'num_tracked_frames': lambda: plot_functions.num_tracked_frames(accuracies, dataset_sequences, figures_path, experiments),
             'running_time': lambda: plot_functions.running_time(figures_path, experiments, sequence_nicknames),
             'memory': lambda: plot_functions.plot_memory(figures_path, experiments, sequence_nicknames),
-            'rpe_boxplot': lambda: plot_functions.boxplot_exp_seq(rpe_errors, dataset_sequences,
-                                                                  'rpe_trans_rmse', figures_path, experiments),
-            'rpe_report': lambda: generate_rpe_report(rpe_errors, figures_path),
-            'rpe_histogram_sequence': lambda: plot_functions.histogram_rpe_per_sequence(rpe_errors, dataset_sequences,
-                                                                  'rpe_trans_rmse', figures_path, experiments),
-            'rpe_histogram_dataset': lambda: plot_functions.histogram_rpe_per_dataset(rpe_errors, dataset_sequences,
-                                                                  'rpe_trans_rmse', figures_path, experiments),
-            'rpe_rot_histogram_sequence': lambda: plot_functions.histogram_rpe_per_sequence(rpe_errors, dataset_sequences,
-                                                                  'rpe_rot_rmse', figures_path, experiments),
-            'rpe_rot_histogram_dataset': lambda: plot_functions.histogram_rpe_per_dataset(rpe_errors, dataset_sequences,
-                                                                  'rpe_rot_rmse', figures_path, experiments),
-            'rpe_detailed_histogram_sequence': lambda: plot_functions.histogram_rpe_detailed_per_sequence(
-                                                                  dataset_sequences, figures_path, experiments, metric='trans'),
-            'rpe_detailed_histogram_dataset': lambda: plot_functions.histogram_rpe_detailed_per_dataset(
-                                                                  dataset_sequences, figures_path, experiments, metric='trans'),
-            'rpe_rot_detailed_histogram_sequence': lambda: plot_functions.histogram_rpe_detailed_per_sequence(
-                                                                  dataset_sequences, figures_path, experiments, metric='rot'),
-            'rpe_rot_detailed_histogram_dataset': lambda: plot_functions.histogram_rpe_detailed_per_dataset(
-                                                                  dataset_sequences, figures_path, experiments, metric='rot'),
+            'rpe_histogram': lambda: plot_functions.rpe_histograms(
+                rpe_kf_errors, rpe_cam_errors, dataset_sequences, exp_names,
+                dataset_nicknames, figures_path, experiments),
+            'rpe_over_time': lambda: plot_functions.rpe_over_time(
+                rpe_cam_errors, tracking_stats, dataset_sequences, exp_names,
+                dataset_nicknames, figures_path, experiments),
+            'tracking_rate': lambda: plot_functions.tracking_rate_summary(
+                tracking_stats, dataset_sequences, exp_names,
+                dataset_nicknames, figures_path, experiments),
         }
 
         func = switcher.get(comparison_, lambda: "Invalid case")
@@ -157,166 +144,55 @@ def get_accuracies(experiments, dataset_sequences):
 
 def get_rpe_errors(experiments, dataset_sequences):
     """
-    ------------ Description:
-    Reads RPE (Relative Pose Error) CSV files from a specified folder structure and stores them 
-    in a nested dictionary. Provides both sequence-level and dataset-level aggregation for 
-    failure analysis.
-
-    ------------ Parameters:
-    experiments : dict
-        experiments[exp_name] = experiment
-    dataset_sequences : dict
-        dataset_sequences[dataset_name] = list{sequence_names}
-
-    ------------ Returns:
-    rpe_errors : dict
-        rpe_errors[dataset_name][sequence_name][exp_name] = pandas.DataFrame()
+    Reads RPE CSV files and tracking stats from evaluation folder.
+    
+    Returns:
+        rpe_kf_errors[dataset_name][sequence_name][exp_name] = list of DataFrames (one per run)
+        rpe_cam_errors[dataset_name][sequence_name][exp_name] = list of DataFrames (one per run)
+        tracking_stats[dataset_name][sequence_name][exp_name] = list of DataFrames (one per run)
     """
-
-    rpe_errors = {}
+    rpe_kf_errors = {}
+    rpe_cam_errors = {}
+    tracking_stats = {}
+    
     for dataset_name, sequence_names in dataset_sequences.items():
-        rpe_errors[dataset_name] = {}
+        rpe_kf_errors[dataset_name] = {}
+        rpe_cam_errors[dataset_name] = {}
+        tracking_stats[dataset_name] = {}
+        
         for sequence_name in sequence_names:
-            rpe_errors[dataset_name][sequence_name] = {}
+            rpe_kf_errors[dataset_name][sequence_name] = {}
+            rpe_cam_errors[dataset_name][sequence_name] = {}
+            tracking_stats[dataset_name][sequence_name] = {}
+            
             for exp_name, exp in experiments.items():
-                rpe_csv_file = os.path.join(exp.folder, dataset_name.upper(), sequence_name,
-                                            os.path.join(VSLAM_LAB_EVALUATION_FOLDER, VSLAM_LAB_RPE_CSV))
-                rpe_errors[dataset_name][sequence_name][exp_name] = read_csv(rpe_csv_file)
-
-    return rpe_errors
-
-
-def aggregate_rpe_by_dataset(rpe_errors):
-    """
-    ------------ Description:
-    Aggregates RPE errors at the dataset level for high-level failure analysis.
-    Computes mean, std, max RPE across all sequences within each dataset.
-
-    ------------ Parameters:
-    rpe_errors : dict
-        rpe_errors[dataset_name][sequence_name][exp_name] = pandas.DataFrame()
-
-    ------------ Returns:
-    dataset_rpe : dict
-        dataset_rpe[dataset_name][exp_name] = {
-            'mean_rpe_trans': float, 'std_rpe_trans': float, 'max_rpe_trans': float,
-            'mean_rpe_rot': float, 'std_rpe_rot': float, 'max_rpe_rot': float,
-            'num_sequences': int, 'sequences_with_errors': list
-        }
-    """
-    import numpy as np
-    
-    dataset_rpe = {}
-    for dataset_name, sequences in rpe_errors.items():
-        dataset_rpe[dataset_name] = {}
-        
-        # Get all experiment names from first sequence
-        exp_names = set()
-        for sequence_name, exp_data in sequences.items():
-            exp_names.update(exp_data.keys())
-        
-        for exp_name in exp_names:
-            rpe_trans_values = []
-            rpe_rot_values = []
-            sequences_with_high_error = []
-            
-            for sequence_name, exp_data in sequences.items():
-                if exp_name in exp_data and exp_data[exp_name] is not None:
-                    df = exp_data[exp_name]
-                    if 'rpe_trans_rmse' in df.columns:
-                        trans_rmse = df['rpe_trans_rmse'].dropna().values
-                        rpe_trans_values.extend(trans_rmse)
+                eval_folder = os.path.join(exp.folder, dataset_name.upper(), sequence_name, VSLAM_LAB_EVALUATION_FOLDER)
+                
+                kf_dfs = []
+                cam_dfs = []
+                stats_dfs = []
+                
+                if os.path.exists(eval_folder):
+                    for f in os.listdir(eval_folder):
+                        filepath = os.path.join(eval_folder, f)
                         
-                        # Flag sequences with high RPE for failure analysis
-                        if len(trans_rmse) > 0 and np.max(trans_rmse) > np.median(trans_rmse) * 2:
-                            sequences_with_high_error.append({
-                                'sequence': sequence_name,
-                                'max_rpe_trans': np.max(trans_rmse),
-                                'mean_rpe_trans': np.mean(trans_rmse)
-                            })
-                    
-                    if 'rpe_rot_rmse' in df.columns:
-                        rot_rmse = df['rpe_rot_rmse'].dropna().values
-                        rpe_rot_values.extend(rot_rmse)
-            
-            dataset_rpe[dataset_name][exp_name] = {
-                'mean_rpe_trans': np.mean(rpe_trans_values) if rpe_trans_values else None,
-                'std_rpe_trans': np.std(rpe_trans_values) if rpe_trans_values else None,
-                'max_rpe_trans': np.max(rpe_trans_values) if rpe_trans_values else None,
-                'median_rpe_trans': np.median(rpe_trans_values) if rpe_trans_values else None,
-                'mean_rpe_rot': np.mean(rpe_rot_values) if rpe_rot_values else None,
-                'std_rpe_rot': np.std(rpe_rot_values) if rpe_rot_values else None,
-                'max_rpe_rot': np.max(rpe_rot_values) if rpe_rot_values else None,
-                'median_rpe_rot': np.median(rpe_rot_values) if rpe_rot_values else None,
-                'num_sequences': len(sequences),
-                'sequences_with_high_error': sequences_with_high_error
-            }
+                        if f.endswith('_KeyFrameTrajectory_rpe_errors.csv'):
+                            df = read_csv(filepath)
+                            if df is not None and not df.empty:
+                                kf_dfs.append(df)
+                                
+                        elif f.endswith('_CameraTrajectory_rpe_errors.csv'):
+                            df = read_csv(filepath)
+                            if df is not None and not df.empty:
+                                cam_dfs.append(df)
+                                
+                        elif f.endswith('_tracking_stats.csv'):
+                            df = read_csv(filepath)
+                            if df is not None and not df.empty:
+                                stats_dfs.append(df)
+                
+                rpe_kf_errors[dataset_name][sequence_name][exp_name] = kf_dfs
+                rpe_cam_errors[dataset_name][sequence_name][exp_name] = cam_dfs
+                tracking_stats[dataset_name][sequence_name][exp_name] = stats_dfs
     
-    return dataset_rpe
-
-
-def generate_rpe_report(rpe_errors, output_path):
-    """
-    ------------ Description:
-    Generates a comprehensive RPE report for failure analysis.
-    Creates both a summary CSV and detailed per-sequence breakdown.
-
-    ------------ Parameters:
-    rpe_errors : dict
-        rpe_errors[dataset_name][sequence_name][exp_name] = pandas.DataFrame()
-    output_path : str
-        Path to save the report files
-
-    ------------ Returns:
-    None (saves files to output_path)
-    """
-    import pandas as pd
-    
-    # Sequence-level report
-    sequence_rows = []
-    for dataset_name, sequences in rpe_errors.items():
-        for sequence_name, exp_data in sequences.items():
-            for exp_name, df in exp_data.items():
-                if df is not None and not df.empty:
-                    for _, row in df.iterrows():
-                        sequence_rows.append({
-                            'dataset': dataset_name,
-                            'sequence': sequence_name,
-                            'experiment': exp_name,
-                            'trajectory': row.get('traj_name', ''),
-                            'rpe_trans_rmse': row.get('rpe_trans_rmse', None),
-                            'rpe_trans_max': row.get('rpe_trans_max', None),
-                            'rpe_rot_rmse': row.get('rpe_rot_rmse', None),
-                            'rpe_rot_max': row.get('rpe_rot_max', None),
-                            'num_rpe_pairs': row.get('num_rpe_pairs', None),
-                        })
-    
-    if sequence_rows:
-        sequence_df = pd.DataFrame(sequence_rows)
-        sequence_df.to_csv(os.path.join(output_path, 'rpe_sequence_report.csv'), index=False)
-    
-    # Dataset-level aggregation
-    dataset_rpe = aggregate_rpe_by_dataset(rpe_errors)
-    dataset_rows = []
-    for dataset_name, exp_data in dataset_rpe.items():
-        for exp_name, stats in exp_data.items():
-            dataset_rows.append({
-                'dataset': dataset_name,
-                'experiment': exp_name,
-                'mean_rpe_trans': stats['mean_rpe_trans'],
-                'std_rpe_trans': stats['std_rpe_trans'],
-                'max_rpe_trans': stats['max_rpe_trans'],
-                'median_rpe_trans': stats['median_rpe_trans'],
-                'mean_rpe_rot': stats['mean_rpe_rot'],
-                'std_rpe_rot': stats['std_rpe_rot'],
-                'max_rpe_rot': stats['max_rpe_rot'],
-                'median_rpe_rot': stats['median_rpe_rot'],
-                'num_sequences': stats['num_sequences'],
-                'num_high_error_sequences': len(stats['sequences_with_high_error']),
-            })
-    
-    if dataset_rows:
-        dataset_df = pd.DataFrame(dataset_rows)
-        dataset_df.to_csv(os.path.join(output_path, 'rpe_dataset_report.csv'), index=False)
-    
-    return dataset_rpe
+    return rpe_kf_errors, rpe_cam_errors, tracking_stats

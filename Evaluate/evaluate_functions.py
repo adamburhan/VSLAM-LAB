@@ -5,8 +5,8 @@ from tqdm import tqdm
 from pathlib import Path
 
 from Evaluate.evo_functions import evo_metric, evo_get_accuracy, evo_get_rpe_errors
-from path_constants import VSLAM_LAB_EVALUATION_FOLDER, TRAJECTORY_FILE_NAME, GROUNTRUTH_FILE
-from utilities import print_msg, ws, format_msg
+from path_constants import VSLAM_LAB_EVALUATION_FOLDER, TRAJECTORY_FILE_NAME, GROUNTRUTH_FILE, CAMERA_TRAJECTORY_FILE_NAME
+from utilities import print_msg, ws, format_msg, read_csv
 
 SCRIPT_LABEL = f"\033[95m[{os.path.basename(__file__)}]\033[0m "
 
@@ -20,10 +20,9 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
     groundtruth_csv = Path(exp.folder) / dataset.dataset_folder / sequence_name /  GROUNTRUTH_FILE
     evaluation_folder = os.path.join(exp.folder, dataset.dataset_folder, sequence_name, VSLAM_LAB_EVALUATION_FOLDER)
     accuracy_csv = os.path.join(evaluation_folder, f'{METRIC}.csv')
-    rpe_csv = os.path.join(evaluation_folder, f'rpe_errors.csv')
 
     # Load experiments log
-    exp_log = pd.read_csv(exp.log_csv)
+    exp_log = read_csv(exp.log_csv)
     if overwrite:
         if os.path.exists(evaluation_folder):
             shutil.rmtree(evaluation_folder)        
@@ -40,9 +39,11 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
 
     print_msg(SCRIPT_LABEL, f"Evaluating '{evaluation_folder.replace(sequence_name, f"{dataset.dataset_color}{sequence_name}\033[0m")}'")
     if len(runs_to_evaluate) == 0:
+        print_msg(SCRIPT_LABEL, f"No runs to evaluate for '{evaluation_folder.replace(sequence_name, f'{dataset.dataset_color}{sequence_name}\033[0m')}'")
         exp_log.to_csv(exp.log_csv, index=False)
         return
     
+    print_msg(SCRIPT_LABEL, f"Evaluating ATE for '{evaluation_folder.replace(sequence_name, f'{dataset.dataset_color}{sequence_name}\033[0m')}'")
     # Evaluate runs
     zip_files = []
     for exp_it in tqdm(runs_to_evaluate):
@@ -57,37 +58,42 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
         exp_log.to_csv(exp.log_csv, index=False)
         return   
 
-    zip_files_rpe_trans = []
-    for exp_it in tqdm(runs_to_evaluate):
-        trajectory_file = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
-        success = evo_metric('rpe_trans', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
-        if success[0]:
-            zip_files_rpe_trans.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe_trans.zip"))
-        else:
-            exp_log.loc[(exp_log["exp_it"] == int(exp_it)) & (exp_log["sequence_name"] == sequence_name),"EVALUATION"] = 'failed'
-            tqdm.write(format_msg(ws(8), f"{success[1]}", "error"))
-    if len(zip_files_rpe_trans) == 0:
-        exp_log.to_csv(exp.log_csv, index=False)
-        return
+    print_msg(SCRIPT_LABEL, f"Evaluating RPE for '{evaluation_folder.replace(sequence_name, f'{dataset.dataset_color}{sequence_name}\033[0m')}'")
 
-    zip_files_rpe_rot = []
+    zip_files_kf_rpe_trans = []
+    zip_files_kf_rpe_rot = []
+    zip_files_cam_rpe_trans = []
+    zip_files_cam_rpe_rot = []
+
     for exp_it in tqdm(runs_to_evaluate):
-        trajectory_file = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
-        success = evo_metric('rpe_rot', groundtruth_csv, trajectory_file, evaluation_folder, 10e9 / dataset.rgb_hz)
-        if success[0]:
-            zip_files_rpe_rot.append(os.path.join(evaluation_folder, f"{exp_it}_{TRAJECTORY_FILE_NAME}_rpe_rot.zip"))
+        max_time_diff = 10e9 / dataset.rgb_hz
+        # Keyframe trajectory RPE
+        kf_traj = os.path.join(trajectories_path, f"{exp_it}_{TRAJECTORY_FILE_NAME}.csv")
+        kf_trans, kf_rot, err = evaluate_trajectory_rpe(kf_traj, groundtruth_csv, evaluation_folder, exp_it, max_time_diff, "keyframe")
+        if kf_trans:
+            zip_files_kf_rpe_trans.append(kf_trans)
+            zip_files_kf_rpe_rot.append(kf_rot)
         else:
-            exp_log.loc[(exp_log["exp_it"] == int(exp_it)) & (exp_log["sequence_name"] == sequence_name),"EVALUATION"] = 'failed'
-            tqdm.write(format_msg(ws(8), f"{success[1]}", "error"))
-    if len(zip_files_rpe_rot) == 0:
-        exp_log.to_csv(exp.log_csv, index=False)
-        return
+            tqdm.write(format_msg(ws(8), f"Keyframe RPE failed: {err}", "error"))
+        
+        # Camera trajectory RPE
+        cam_traj = os.path.join(trajectories_path, f"{exp_it}_{CAMERA_TRAJECTORY_FILE_NAME}.csv")
+        cam_trans, cam_rot, err = evaluate_trajectory_rpe(cam_traj, groundtruth_csv, evaluation_folder, exp_it, max_time_diff, "camera")
+        if cam_trans:
+            zip_files_cam_rpe_trans.append(cam_trans)
+            zip_files_cam_rpe_rot.append(cam_rot)
+        else:
+            tqdm.write(format_msg(ws(8), f"Camera RPE failed: {err}", "error"))
 
     # Retrieve accuracies
     evo_get_accuracy(zip_files, accuracy_csv)
 
+    
+    rpe_kf_csv = os.path.join(evaluation_folder, f'rpe_errors_kf.csv')
+    rpe_cam_csv = os.path.join(evaluation_folder, f'rpe_errors_cam.csv')
     # Retrieve rpe errors
-    evo_get_rpe_errors(zip_files_rpe_trans, zip_files_rpe_rot, rpe_csv)
+    evo_get_rpe_errors(zip_files_kf_rpe_trans, zip_files_kf_rpe_rot, rpe_kf_csv)
+    evo_get_rpe_errors(zip_files_cam_rpe_trans, zip_files_cam_rpe_rot, rpe_cam_csv)
 
     # Final Checks
     if not os.path.exists(accuracy_csv):
@@ -137,3 +143,21 @@ def evaluate_sequence(exp, dataset, sequence_name, overwrite=False):
 
 def evaluate_dataset(exp, dataset, overwrite=False):
     pass
+
+def evaluate_trajectory_rpe(trajectory_file, groundtruth_csv, evaluation_folder, exp_it, max_time_diff, traj_label):
+    """Evaluate RPE for a single trajectory, returns (zip_trans, zip_rot) or (None, None) on failure"""
+    print("aaaaaaaaa")
+    success_trans = evo_metric('rpe_trans', groundtruth_csv, trajectory_file, evaluation_folder, max_time_diff)
+    if not success_trans[0]:
+        return None, None, success_trans[1]
+    
+    success_rot = evo_metric('rpe_rot', groundtruth_csv, trajectory_file, evaluation_folder, max_time_diff)
+    if not success_rot[0]:
+        return None, None, success_rot[1]
+    
+    base = os.path.basename(trajectory_file).replace(".csv", "")
+    print(base)
+    zip_trans = os.path.join(evaluation_folder, f"{base}_rpe_trans.zip")
+    zip_rot = os.path.join(evaluation_folder, f"{base}_rpe_rot.zip")
+    
+    return zip_trans, zip_rot, None

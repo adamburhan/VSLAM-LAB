@@ -13,7 +13,7 @@ class MAST3RSLAM_baseline(BaselineVSLAMLab):
     """MASt3R-SLAM helper for VSLAM-LAB Baselines."""    
     def __init__(self, baseline_name: str = 'mast3rslam', baseline_folder: str = 'MASt3R-SLAM') -> None:
         
-        default_parameters = {'verbose': 1, 'mode': 'mono', 
+        default_parameters = {'verbose': 0, 'mode': 'mono', 
                               'checkpoints_dir': str(VSLAMLAB_BASELINES / baseline_folder / 'checkpoints'), 'use_calib': 1}
         
         # Initialize the baseline

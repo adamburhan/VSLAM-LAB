@@ -35,6 +35,7 @@ from sklearn.decomposition import PCA
 from path_constants import VSLAM_LAB_EVALUATION_FOLDER, VSLAMLAB_EVALUATION
 from Baselines.get_baseline import get_baseline
 from Datasets.get_dataset import get_dataset
+from utilities import read_csv
 
 import matplotlib.ticker as ticker
 from matplotlib.transforms import ScaledTranslation
@@ -276,8 +277,14 @@ def boxplot_exp_seq(values, dataset_sequences, metric_name, comparison_path, exp
             else:
                 whisker_min[sequence_name] = whisker_min_seq - width
                          
-    # Adjust plot properties for paper
-    max_value, min_value = max(whisker_max.values()), min(whisker_min.values())
+    # Adjust plot properties for paper - filter out NaN values
+    valid_max = [v for v in whisker_max.values() if not np.isnan(v)]
+    valid_min = [v for v in whisker_min.values() if not np.isnan(v)]
+    
+    if valid_max and valid_min:
+        max_value, min_value = max(valid_max), min(valid_min)
+    else:
+        max_value, min_value = 1.0, 0.0  # Default fallback
 
     if shared_scale:
         whisker_max = {key: max_value for key in whisker_max}
@@ -292,14 +299,28 @@ def boxplot_exp_seq(values, dataset_sequences, metric_name, comparison_path, exp
 
         whisker_max_seq = whisker_max[sequence_name]
         whisker_min_seq = whisker_min[sequence_name]
+        
+        # Skip if limits are NaN or Inf
+        if np.isnan(whisker_max_seq) or np.isnan(whisker_min_seq) or np.isinf(whisker_max_seq) or np.isinf(whisker_min_seq):
+            axs[splt['id']].grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+            axs[splt['id']].set_xticklabels([])
+            axs[splt['id']].set_yticklabels([])
+            axs[splt['id']].text(0.5, 0.5, 'No data', ha='center', va='center', transform=axs[splt['id']].transAxes, fontsize=FONT_SIZE)
+            continue
        
         yticks = [whisker_min_seq, whisker_max_seq]
+        
+        # Guard against identical limits
+        if whisker_max_seq == whisker_min_seq:
+            whisker_max_seq = whisker_min_seq + 0.001
+            yticks = [whisker_min_seq, whisker_max_seq]
 
         axs[splt['id']].grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
         axs[splt['id']].set_xticklabels([])
         axs[splt['id']].set_ylim(yticks)
-        axs[splt['id']].tick_params(axis='y', labelsize=FONT_SIZE) 
-        axs[splt['id']].yaxis.set_minor_locator(ticker.MultipleLocator((whisker_max_seq - whisker_min_seq) / 4))
+        axs[splt['id']].tick_params(axis='y', labelsize=FONT_SIZE)
+        minor_step = (whisker_max_seq - whisker_min_seq) / 4 if (whisker_max_seq - whisker_min_seq) > 0 else 0.001
+        axs[splt['id']].yaxis.set_minor_locator(ticker.MultipleLocator(minor_step))
         if not shared_scale:    
             axs[splt['id']].set_yticks(yticks)
             tick_labels = axs[splt['id']].get_yticklabels()
@@ -750,7 +771,7 @@ def plot_table(ax, experiments, label, norm_label, sequence_nicknames, title = '
 
     all_logs = []
     for exp_name, exp in experiments.items():
-        exp_log = pd.read_csv(exp.log_csv)
+        exp_log = read_csv(exp.log_csv)
         exp_log = exp_log[
         (exp_log['STATUS'] == 'completed') &
         (exp_log['SUCCESS'] == True) &
@@ -890,7 +911,7 @@ def get_baseline_labels(experiments):
 def combine_exp_log(experiments, label, norm_label, unit_factor):
     all_logs = []
     for exp_name, exp in experiments.items():
-        exp_log = pd.read_csv(exp.log_csv)
+        exp_log = read_csv(exp.log_csv)
         exp_log = exp_log[
         (exp_log['STATUS'] == 'completed') &
         (exp_log['SUCCESS'] == True) &
@@ -923,7 +944,7 @@ def plot_table_memory_per_frame(ax, experiments, sequence_nicknames, title = '',
 
     dfs = []
     for exp_name, exp in experiments.items():
-        exp_log = pd.read_csv(exp.log_csv)
+        exp_log = read_csv(exp.log_csv)
         exp_log = exp_log[
         (exp_log['STATUS'] == 'completed') &
         (exp_log['SUCCESS'] == True) &
@@ -1056,7 +1077,7 @@ def plot_table_memory_total(ax, experiments, sequence_nicknames, title = '', uni
 
     dfs = []
     for exp_name, exp in experiments.items():
-        exp_log = pd.read_csv(exp.log_csv)
+        exp_log = read_csv(exp.log_csv)
         exp_log = exp_log[
         (exp_log['STATUS'] == 'completed') &
         (exp_log['SUCCESS'] == True) &
@@ -1386,549 +1407,186 @@ def plot_memory(figures_path, experiments, sequence_nicknames):
     #plot_table(experiments, 'TIME','num_frames')
 
 
-def histogram_rpe_per_sequence(rpe_errors, dataset_sequences, metric_name, figures_path, experiments, bins=30):
+def rpe_histograms(rpe_kf_errors, rpe_cam_errors, dataset_sequences, exp_names, 
+                   dataset_nicknames, figures_path, experiments):
     """
-    Generate histogram plots of RPE distribution for each sequence.
-    Useful for understanding error distributions and identifying failure modes.
-    
-    Parameters:
-    -----------
-    rpe_errors : dict
-        rpe_errors[dataset_name][sequence_name][exp_name] = pandas.DataFrame()
-    dataset_sequences : dict
-        dataset_sequences[dataset_name] = list{sequence_names}
-    metric_name : str
-        Column name to plot (e.g., 'rpe_trans_rmse', 'rpe_rot_rmse')
-    figures_path : str
-        Path to save figures
-    experiments : dict
-        experiments[exp_name] = experiment
-    bins : int
-        Number of histogram bins
+    Plot RPE histograms per dataset (aggregating all sequences and runs).
+    4 plots: kf_trans, kf_rot, cam_trans, cam_rot
     """
-    os.makedirs(figures_path, exist_ok=True)
-    
-    # Get number of sequences
-    num_sequences = 0
-    splts = {}
     for dataset_name, sequence_names in dataset_sequences.items():
-        dataset = get_dataset(dataset_name, " ")
-        for sequence_name in sequence_names:
-            splts[sequence_name] = {}
-            splts[sequence_name]['id'] = num_sequences
-            splts[sequence_name]['dataset_name'] = dataset_name
-            splts[sequence_name]['nickname'] = dataset.get_sequence_nickname(sequence_name)
-            num_sequences += 1
-
-    exp_names = list(experiments.keys())
-    
-    # Figure dimensions
-    NUM_COLS = 5
-    NUM_ROWS = math.ceil(num_sequences / NUM_COLS)
-    XSIZE, YSIZE = 14, 2.5 * NUM_ROWS + 0.5
-    FONT_SIZE = 10
-    
-    fig, axs = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(XSIZE, YSIZE))
-    if NUM_ROWS == 1:
-        axs = axs.reshape(1, -1)
-    axs = axs.flatten()
-    
-    # Create legend handles
-    legend_handles = []
-    colors = {}
-    for i_exp, exp_name in enumerate(exp_names):
-        baseline = get_baseline(experiments[exp_name].module)
-        colors[exp_name] = baseline.color
-        legend_handles.append(Patch(color=colors[exp_name], label=exp_name, alpha=0.6))
-    
-    # Plot histograms
-    for sequence_name, splt in splts.items():
-        ax = axs[splt['id']]
-        all_values = []
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
         
-        for i_exp, exp_name in enumerate(exp_names):
-            values_seq_exp = rpe_errors[splt['dataset_name']][sequence_name][exp_name]
-            if values_seq_exp is None or values_seq_exp.empty:
-                continue
-            if metric_name not in values_seq_exp.columns:
-                continue
-                
-            data = values_seq_exp[metric_name].dropna().values
-            if len(data) == 0:
-                continue
-                
-            all_values.extend(data)
-            ax.hist(data, bins=bins, alpha=0.6, color=colors[exp_name], 
-                   label=exp_name, edgecolor='black', linewidth=0.5)
-        
-        ax.set_title(splt['nickname'], fontsize=FONT_SIZE)
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-        ax.tick_params(axis='both', labelsize=FONT_SIZE - 2)
-        
-        if len(all_values) > 0:
-            ax.set_xlabel(metric_name, fontsize=FONT_SIZE - 2)
-            ax.set_ylabel('Count', fontsize=FONT_SIZE - 2)
-    
-    # Hide unused subplots
-    for idx in range(num_sequences, len(axs)):
-        axs[idx].set_visible(False)
-    
-    fig.legend(handles=legend_handles, loc='upper center', ncol=len(exp_names), fontsize=FONT_SIZE)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    
-    # Save figure
-    fig_path = os.path.join(figures_path, f'histogram_{metric_name}_per_sequence.png')
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-    plt.savefig(fig_path.replace('.png', '.pdf'), bbox_inches='tight')
-    
-
-def histogram_rpe_per_dataset(rpe_errors, dataset_sequences, metric_name, figures_path, experiments, bins=50):
-    """
-    Generate histogram plots of RPE distribution aggregated at the dataset level.
-    Shows overall error distribution across all sequences in each dataset.
-    
-    Parameters:
-    -----------
-    rpe_errors : dict
-        rpe_errors[dataset_name][sequence_name][exp_name] = pandas.DataFrame()
-    dataset_sequences : dict
-        dataset_sequences[dataset_name] = list{sequence_names}
-    metric_name : str
-        Column name to plot (e.g., 'rpe_trans_rmse', 'rpe_rot_rmse')
-    figures_path : str
-        Path to save figures
-    experiments : dict
-        experiments[exp_name] = experiment
-    bins : int
-        Number of histogram bins
-    """
-    os.makedirs(figures_path, exist_ok=True)
-    
-    exp_names = list(experiments.keys())
-    num_datasets = len(dataset_sequences)
-    
-    # Figure dimensions
-    NUM_COLS = min(3, num_datasets)
-    NUM_ROWS = math.ceil(num_datasets / NUM_COLS)
-    XSIZE, YSIZE = 5 * NUM_COLS, 4 * NUM_ROWS
-    FONT_SIZE = 12
-    
-    fig, axs = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(XSIZE, YSIZE))
-    if num_datasets == 1:
-        axs = np.array([axs])
-    axs = axs.flatten()
-    
-    # Create legend handles
-    legend_handles = []
-    colors = {}
-    for i_exp, exp_name in enumerate(exp_names):
-        baseline = get_baseline(experiments[exp_name].module)
-        colors[exp_name] = baseline.color
-        legend_handles.append(Patch(color=colors[exp_name], label=exp_name, alpha=0.6))
-    
-    # Plot histograms per dataset
-    for i_dataset, (dataset_name, sequence_names) in enumerate(dataset_sequences.items()):
-        ax = axs[i_dataset]
-        
-        for i_exp, exp_name in enumerate(exp_names):
-            all_values = []
+        for exp_name in exp_names:
+            baseline = get_baseline(experiments[exp_name].module)
+            
+            # Aggregate all RPE values for this experiment across sequences
+            kf_trans_all, kf_rot_all = [], []
+            cam_trans_all, cam_rot_all = [], []
             
             for sequence_name in sequence_names:
-                values_seq_exp = rpe_errors[dataset_name][sequence_name][exp_name]
-                if values_seq_exp is None or values_seq_exp.empty:
-                    continue
-                if metric_name not in values_seq_exp.columns:
-                    continue
-                    
-                data = values_seq_exp[metric_name].dropna().values
-                all_values.extend(data)
+                # Keyframe RPE
+                for df in rpe_kf_errors[dataset_name][sequence_name][exp_name]:
+                    if df is not None and not df.empty:
+                        kf_trans_all.extend(df['rpe_trans'].dropna().tolist())
+                        kf_rot_all.extend(df['rpe_rot'].dropna().tolist())
+                
+                # Camera RPE
+                for df in rpe_cam_errors[dataset_name][sequence_name][exp_name]:
+                    if df is not None and not df.empty:
+                        cam_trans_all.extend(df['rpe_trans'].dropna().tolist())
+                        cam_rot_all.extend(df['rpe_rot'].dropna().tolist())
             
-            if len(all_values) > 0:
-                ax.hist(all_values, bins=bins, alpha=0.6, color=colors[exp_name],
-                       label=exp_name, edgecolor='black', linewidth=0.5)
+            # Plot histograms
+            if kf_trans_all:
+                axes[0, 0].hist(kf_trans_all, bins=50, alpha=0.5, label=exp_name, color=baseline.color, density=True)
+            if kf_rot_all:
+                axes[0, 1].hist(kf_rot_all, bins=50, alpha=0.5, label=exp_name, color=baseline.color, density=True)
+            if cam_trans_all:
+                axes[1, 0].hist(cam_trans_all, bins=50, alpha=0.5, label=exp_name, color=baseline.color, density=True)
+            if cam_rot_all:
+                axes[1, 1].hist(cam_rot_all, bins=50, alpha=0.5, label=exp_name, color=baseline.color, density=True)
         
-        dataset = get_dataset(dataset_name, " ")
-        ax.set_title(f'{dataset_name.upper()}', fontsize=FONT_SIZE)
-        ax.set_xlabel(metric_name, fontsize=FONT_SIZE - 2)
-        ax.set_ylabel('Count', fontsize=FONT_SIZE - 2)
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-        ax.tick_params(axis='both', labelsize=FONT_SIZE - 2)
-    
-    # Hide unused subplots
-    for idx in range(num_datasets, len(axs)):
-        axs[idx].set_visible(False)
-    
-    fig.legend(handles=legend_handles, loc='upper center', ncol=len(exp_names), fontsize=FONT_SIZE)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-    
-    # Save figure
-    fig_path = os.path.join(figures_path, f'histogram_{metric_name}_per_dataset.png')
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-    plt.savefig(fig_path.replace('.png', '.pdf'), bbox_inches='tight')
-
-
-def histogram_rpe_detailed(evaluation_folder, trajectory_name, figures_path, bins=50):
-    """
-    Plot detailed RPE histogram from per-frame error data.
-    Uses the detailed CSV files generated by evo_get_rpe_errors().
-    
-    Parameters:
-    -----------
-    evaluation_folder : str
-        Path to evaluation folder containing detailed CSV files
-    trajectory_name : str
-        Base trajectory name (e.g., '00001_KeyFrameTrajectory')
-    figures_path : str
-        Path to save figures
-    bins : int
-        Number of histogram bins
-    """
-    os.makedirs(figures_path, exist_ok=True)
-    
-    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-    
-    # RPE Translation
-    trans_csv = os.path.join(evaluation_folder, f'{trajectory_name}_rpe_trans_detailed.csv')
-    if os.path.exists(trans_csv):
-        df_trans = pd.read_csv(trans_csv)
-        axs[0].hist(df_trans['rpe_trans'], bins=bins, alpha=0.7, color='steelblue', 
-                   edgecolor='black', linewidth=0.5)
-        axs[0].axvline(df_trans['rpe_trans'].mean(), color='red', linestyle='--', 
-                      label=f"Mean: {df_trans['rpe_trans'].mean():.4f}")
-        axs[0].axvline(df_trans['rpe_trans'].median(), color='orange', linestyle='--',
-                      label=f"Median: {df_trans['rpe_trans'].median():.4f}")
-        axs[0].set_xlabel('RPE Translation (m)', fontsize=12)
-        axs[0].set_ylabel('Count', fontsize=12)
-        axs[0].set_title(f'RPE Translation Distribution\n{trajectory_name}', fontsize=12)
-        axs[0].legend()
-        axs[0].grid(True, linestyle='--', alpha=0.7)
-    
-    # RPE Rotation
-    rot_csv = os.path.join(evaluation_folder, f'{trajectory_name}_rpe_rot_detailed.csv')
-    if os.path.exists(rot_csv):
-        df_rot = pd.read_csv(rot_csv)
-        axs[1].hist(df_rot['rpe_rot'], bins=bins, alpha=0.7, color='coral',
-                   edgecolor='black', linewidth=0.5)
-        axs[1].axvline(df_rot['rpe_rot'].mean(), color='red', linestyle='--',
-                      label=f"Mean: {df_rot['rpe_rot'].mean():.4f}")
-        axs[1].axvline(df_rot['rpe_rot'].median(), color='orange', linestyle='--',
-                      label=f"Median: {df_rot['rpe_rot'].median():.4f}")
-        axs[1].set_xlabel('RPE Rotation (deg)', fontsize=12)
-        axs[1].set_ylabel('Count', fontsize=12)
-        axs[1].set_title(f'RPE Rotation Distribution\n{trajectory_name}', fontsize=12)
-        axs[1].legend()
-        axs[1].grid(True, linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    
-    # Save figure
-    fig_path = os.path.join(figures_path, f'histogram_rpe_detailed_{trajectory_name}.png')
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-
-
-def plot_rpe_over_time(evaluation_folder, trajectory_name, figures_path):
-    """
-    Plot RPE errors over time for failure analysis.
-    Shows where in the sequence the errors occur.
-    
-    Parameters:
-    -----------
-    evaluation_folder : str
-        Path to evaluation folder containing detailed CSV files
-    trajectory_name : str
-        Base trajectory name (e.g., '00001_KeyFrameTrajectory')
-    figures_path : str
-        Path to save figures
-    """
-    os.makedirs(figures_path, exist_ok=True)
-    
-    fig, axs = plt.subplots(2, 1, figsize=(14, 6), sharex=True)
-    
-    # RPE Translation over time
-    trans_csv = os.path.join(evaluation_folder, f'{trajectory_name}_rpe_trans_detailed.csv')
-    if os.path.exists(trans_csv):
-        df_trans = pd.read_csv(trans_csv)
-        axs[0].plot(df_trans['timestamp'], df_trans['rpe_trans'], 'b-', alpha=0.7, linewidth=0.8)
-        axs[0].fill_between(df_trans['timestamp'], 0, df_trans['rpe_trans'], alpha=0.3)
+        axes[0, 0].set_title('Keyframe RPE Translation')
+        axes[0, 0].set_xlabel('RPE trans (m)')
+        axes[0, 1].set_title('Keyframe RPE Rotation')
+        axes[0, 1].set_xlabel('RPE rot (deg)')
+        axes[1, 0].set_title('Camera RPE Translation')
+        axes[1, 0].set_xlabel('RPE trans (m)')
+        axes[1, 1].set_title('Camera RPE Rotation')
+        axes[1, 1].set_xlabel('RPE rot (deg)')
         
-        # Mark high-error regions
-        threshold = df_trans['rpe_trans'].mean() + 2 * df_trans['rpe_trans'].std()
-        high_error_mask = df_trans['rpe_trans'] > threshold
-        if high_error_mask.any():
-            axs[0].scatter(df_trans.loc[high_error_mask, 'timestamp'], 
-                          df_trans.loc[high_error_mask, 'rpe_trans'],
-                          c='red', s=20, label=f'High error (>{threshold:.4f})', zorder=5)
+        for ax in axes.flat:
+            ax.set_ylabel('Density')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
         
-        axs[0].axhline(df_trans['rpe_trans'].mean(), color='green', linestyle='--', 
-                      label=f"Mean: {df_trans['rpe_trans'].mean():.4f}")
-        axs[0].set_ylabel('RPE Translation (m)', fontsize=12)
-        axs[0].set_title(f'RPE Over Time - {trajectory_name}', fontsize=12)
-        axs[0].legend(loc='upper right')
-        axs[0].grid(True, linestyle='--', alpha=0.7)
-    
-    # RPE Rotation over time
-    rot_csv = os.path.join(evaluation_folder, f'{trajectory_name}_rpe_rot_detailed.csv')
-    if os.path.exists(rot_csv):
-        df_rot = pd.read_csv(rot_csv)
-        axs[1].plot(df_rot['timestamp'], df_rot['rpe_rot'], 'r-', alpha=0.7, linewidth=0.8)
-        axs[1].fill_between(df_rot['timestamp'], 0, df_rot['rpe_rot'], alpha=0.3, color='coral')
+        plt.suptitle(f'RPE Distribution - {dataset_name}', fontsize=14, fontweight='bold')
+        plt.tight_layout()
         
-        # Mark high-error regions
-        threshold = df_rot['rpe_rot'].mean() + 2 * df_rot['rpe_rot'].std()
-        high_error_mask = df_rot['rpe_rot'] > threshold
-        if high_error_mask.any():
-            axs[1].scatter(df_rot.loc[high_error_mask, 'timestamp'],
-                          df_rot.loc[high_error_mask, 'rpe_rot'],
-                          c='darkred', s=20, label=f'High error (>{threshold:.4f})', zorder=5)
-        
-        axs[1].axhline(df_rot['rpe_rot'].mean(), color='green', linestyle='--',
-                      label=f"Mean: {df_rot['rpe_rot'].mean():.4f}")
-        axs[1].set_xlabel('Timestamp (s)', fontsize=12)
-        axs[1].set_ylabel('RPE Rotation (deg)', fontsize=12)
-        axs[1].legend(loc='upper right')
-        axs[1].grid(True, linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    
-    # Save figure
-    fig_path = os.path.join(figures_path, f'rpe_over_time_{trajectory_name}.png')
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+        plot_path = os.path.join(figures_path, f'{dataset_name}_rpe_histogram.pdf')
+        plt.savefig(plot_path, format='pdf')
+        plt.show(block=False)
 
 
-def histogram_rpe_detailed_per_sequence(dataset_sequences, figures_path, experiments, metric='trans', bins=50):
+def rpe_over_time(rpe_cam_errors, tracking_stats, dataset_sequences, exp_names,
+                  dataset_nicknames, figures_path, experiments):
     """
-    Generate histogram plots using DETAILED per-frame RPE errors (not summary RMSE).
-    This shows the actual distribution of frame-to-frame errors.
-    
-    For large experiments, creates one figure per dataset to avoid overcrowding.
-    
-    Parameters:
-    -----------
-    dataset_sequences : dict
-        dataset_sequences[dataset_name] = list{sequence_names}
-    figures_path : str
-        Path to save figures
-    experiments : dict
-        experiments[exp_name] = experiment
-    metric : str
-        'trans' for translation, 'rot' for rotation
-    bins : int
-        Number of histogram bins
+    Plot RPE over time per sequence with mean ± std cloud across runs.
+    Also marks tracking loss zones.
     """
-    from path_constants import VSLAM_LAB_EVALUATION_FOLDER
-    
-    os.makedirs(figures_path, exist_ok=True)
-    
-    exp_names = list(experiments.keys())
-    
-    # Create legend handles
-    legend_handles = []
-    colors = {}
-    for i_exp, exp_name in enumerate(exp_names):
-        baseline = get_baseline(experiments[exp_name].module)
-        colors[exp_name] = baseline.color
-        legend_handles.append(Patch(color=colors[exp_name], label=exp_name, alpha=0.6))
-    
-    metric_col = 'rpe_trans' if metric == 'trans' else 'rpe_rot'
-    metric_label = 'RPE Translation (m)' if metric == 'trans' else 'RPE Rotation (deg)'
-    
-    # Process each dataset separately for better scalability
     for dataset_name, sequence_names in dataset_sequences.items():
-        num_sequences = len(sequence_names)
-        if num_sequences == 0:
-            continue
-            
-        dataset = get_dataset(dataset_name, " ")
-        
-        # Adaptive grid: max 6 columns, scale rows accordingly
-        MAX_COLS = 6
-        NUM_COLS = min(MAX_COLS, num_sequences)
-        NUM_ROWS = math.ceil(num_sequences / NUM_COLS)
-        
-        # Adaptive sizing: ensure minimum readable size
-        SUBPLOT_WIDTH = 2.5
-        SUBPLOT_HEIGHT = 2.0
-        XSIZE = SUBPLOT_WIDTH * NUM_COLS
-        YSIZE = SUBPLOT_HEIGHT * NUM_ROWS + 0.8  # Extra space for legend
-        FONT_SIZE = max(8, 12 - num_sequences // 10)  # Smaller font for more sequences
-        
-        fig, axs = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(XSIZE, YSIZE))
-        if num_sequences == 1:
-            axs = np.array([axs])
-        axs = axs.flatten()
-        
-        # Plot histograms from detailed CSVs
         for i_seq, sequence_name in enumerate(sequence_names):
-            ax = axs[i_seq]
-            nickname = dataset.get_sequence_nickname(sequence_name)
+            fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
             
-            for i_exp, exp_name in enumerate(exp_names):
-                exp = experiments[exp_name]
-                eval_folder = os.path.join(exp.folder, dataset_name.upper(), 
-                                           sequence_name, VSLAM_LAB_EVALUATION_FOLDER)
+            for exp_name in exp_names:
+                baseline = get_baseline(experiments[exp_name].module)
+                dfs = rpe_cam_errors[dataset_name][sequence_name][exp_name]
                 
-                # Find all detailed CSV files for this metric
-                pattern = os.path.join(eval_folder, f'*_rpe_{metric}_detailed.csv')
-                detailed_files = glob.glob(pattern)
+                if not dfs:
+                    continue
                 
-                all_errors = []
-                for f in detailed_files:
-                    try:
-                        df = pd.read_csv(f)
-                        if metric_col in df.columns:
-                            all_errors.extend(df[metric_col].dropna().values)
-                    except:
-                        continue
+                # Align timestamps and compute mean/std
+                # Use first run's timestamps as reference
+                ref_ts = dfs[0]['ts'].values
                 
-                if len(all_errors) > 0:
-                    ax.hist(all_errors, bins=bins, alpha=0.6, color=colors[exp_name],
-                           edgecolor='black', linewidth=0.3, label=exp_name)
+                trans_matrix = []
+                rot_matrix = []
+                
+                for df in dfs:
+                    # Interpolate to common timestamps if needed
+                    trans_matrix.append(df['rpe_trans'].values)
+                    rot_matrix.append(df['rpe_rot'].values)
+                
+                # Only stack if all runs have same length
+                if all(len(t) == len(ref_ts) for t in trans_matrix):
+                    trans_matrix = np.array(trans_matrix)
+                    rot_matrix = np.array(rot_matrix)
                     
-                    # Add mean line
-                    mean_val = np.mean(all_errors)
-                    ax.axvline(mean_val, color=colors[exp_name], linestyle='--', linewidth=1.5)
+                    mean_trans = np.mean(trans_matrix, axis=0)
+                    std_trans = np.std(trans_matrix, axis=0)
+                    mean_rot = np.mean(rot_matrix, axis=0)
+                    std_rot = np.std(rot_matrix, axis=0)
+                    
+                    # Plot translation
+                    axes[0].plot(ref_ts, mean_trans, color=baseline.color, label=exp_name)
+                    axes[0].fill_between(ref_ts, mean_trans - std_trans, mean_trans + std_trans,
+                                         color=baseline.color, alpha=0.2)
+                    
+                    # Plot rotation
+                    axes[1].plot(ref_ts, mean_rot, color=baseline.color, label=exp_name)
+                    axes[1].fill_between(ref_ts, mean_rot - std_rot, mean_rot + std_rot,
+                                         color=baseline.color, alpha=0.2)
+                
+                # Mark tracking losses
+                stats_dfs = tracking_stats[dataset_name][sequence_name][exp_name]
+                for stats_df in stats_dfs:
+                    if stats_df is not None and not stats_df.empty:
+                        lost_ts = stats_df[stats_df['tracking_state'] == 3]['ts'].values
+                        for ts in lost_ts:
+                            axes[0].axvline(x=ts, color='red', alpha=0.1, linewidth=0.5)
+                            axes[1].axvline(x=ts, color='red', alpha=0.1, linewidth=0.5)
             
-            ax.set_title(nickname, fontsize=FONT_SIZE)
-            ax.set_xlabel(metric_label, fontsize=FONT_SIZE - 2)
-            ax.set_ylabel('Count', fontsize=FONT_SIZE - 2)
-            ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-            ax.tick_params(axis='both', labelsize=FONT_SIZE - 2)
-        
-        # Hide unused subplots
-        for idx in range(num_sequences, len(axs)):
-            axs[idx].set_visible(False)
-        
-        fig.suptitle(f'{dataset_name.upper()} - RPE {metric.capitalize()} Distribution', fontsize=FONT_SIZE + 2)
-        fig.legend(handles=legend_handles, loc='upper center', ncol=min(len(exp_names), 6), 
-                  fontsize=FONT_SIZE, bbox_to_anchor=(0.5, 0.98))
-        plt.tight_layout(rect=[0, 0, 1, 0.94])
-        
-        # Save figure per dataset
-        fig_path = os.path.join(figures_path, f'histogram_rpe_{metric}_detailed_{dataset_name}.png')
-        plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-        plt.savefig(fig_path.replace('.png', '.pdf'), bbox_inches='tight')
-        plt.close(fig)  # Close to free memory
+            axes[0].set_ylabel('RPE trans (m)')
+            axes[0].legend()
+            axes[0].grid(True, alpha=0.3)
+            
+            axes[1].set_ylabel('RPE rot (deg)')
+            axes[1].set_xlabel('Timestamp (ns)')
+            axes[1].legend()
+            axes[1].grid(True, alpha=0.3)
+            
+            nickname = dataset_nicknames[dataset_name][i_seq]
+            plt.suptitle(f'RPE over Time - {nickname}', fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            
+            plot_path = os.path.join(figures_path, f'{dataset_name}_{sequence_name}_rpe_time.pdf')
+            plt.savefig(plot_path, format='pdf')
+            plt.show(block=False)
 
 
-def histogram_rpe_detailed_per_dataset(dataset_sequences, figures_path, experiments, metric='trans', bins=50):
+def tracking_rate_summary(tracking_stats, dataset_sequences, exp_names,
+                          dataset_nicknames, figures_path, experiments):
     """
-    Generate histogram plots of DETAILED per-frame RPE aggregated at dataset level.
-    Scales well to many datasets by using adaptive grid sizing.
-    
-    Parameters:
-    -----------
-    dataset_sequences : dict
-        dataset_sequences[dataset_name] = list{sequence_names}
-    figures_path : str
-        Path to save figures
-    experiments : dict
-        experiments[exp_name] = experiment
-    metric : str
-        'trans' for translation, 'rot' for rotation
-    bins : int
-        Number of histogram bins
+    Bar chart showing tracking rate per sequence and overall per dataset.
     """
-    from path_constants import VSLAM_LAB_EVALUATION_FOLDER
-    
-    os.makedirs(figures_path, exist_ok=True)
-    
-    exp_names = list(experiments.keys())
-    num_datasets = len(dataset_sequences)
-    
-    if num_datasets == 0:
-        return
-    
-    # Adaptive grid sizing for many datasets
-    MAX_COLS = 4
-    NUM_COLS = min(MAX_COLS, num_datasets)
-    NUM_ROWS = math.ceil(num_datasets / NUM_COLS)
-    
-    # Adaptive sizing
-    SUBPLOT_WIDTH = 4.5
-    SUBPLOT_HEIGHT = 3.5
-    XSIZE = SUBPLOT_WIDTH * NUM_COLS
-    YSIZE = SUBPLOT_HEIGHT * NUM_ROWS + 0.8
-    FONT_SIZE = max(9, 12 - num_datasets // 5)
-    
-    fig, axs = plt.subplots(NUM_ROWS, NUM_COLS, figsize=(XSIZE, YSIZE))
-    if num_datasets == 1:
-        axs = np.array([axs])
-    axs = axs.flatten()
-    
-    # Create legend handles
-    legend_handles = []
-    colors = {}
-    for i_exp, exp_name in enumerate(exp_names):
-        baseline = get_baseline(experiments[exp_name].module)
-        colors[exp_name] = baseline.color
-        legend_handles.append(Patch(color=colors[exp_name], label=exp_name, alpha=0.6))
-    
-    metric_col = 'rpe_trans' if metric == 'trans' else 'rpe_rot'
-    metric_label = 'RPE Translation (m)' if metric == 'trans' else 'RPE Rotation (deg)'
-    
-    # Collect stats for summary
-    dataset_stats = {}
-    
-    # Plot histograms per dataset
-    for i_dataset, (dataset_name, sequence_names) in enumerate(dataset_sequences.items()):
-        ax = axs[i_dataset]
-        dataset_stats[dataset_name] = {}
+    for dataset_name, sequence_names in dataset_sequences.items():
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        x = np.arange(len(sequence_names))
+        width = 0.8 / len(exp_names)
         
         for i_exp, exp_name in enumerate(exp_names):
-            exp = experiments[exp_name]
-            all_errors = []
+            baseline = get_baseline(experiments[exp_name].module)
+            tracking_rates = []
             
             for sequence_name in sequence_names:
-                eval_folder = os.path.join(exp.folder, dataset_name.upper(),
-                                           sequence_name, VSLAM_LAB_EVALUATION_FOLDER)
+                stats_dfs = tracking_stats[dataset_name][sequence_name][exp_name]
                 
-                pattern = os.path.join(eval_folder, f'*_rpe_{metric}_detailed.csv')
-                detailed_files = glob.glob(pattern)
-                
-                for f in detailed_files:
-                    try:
-                        df = pd.read_csv(f)
-                        if metric_col in df.columns:
-                            all_errors.extend(df[metric_col].dropna().values)
-                    except:
-                        continue
+                if stats_dfs:
+                    rates = []
+                    for df in stats_dfs:
+                        if df is not None and not df.empty:
+                            total = len(df)
+                            tracked = len(df[df['tracking_state'] == 2])
+                            rates.append(100.0 * tracked / total if total > 0 else 0)
+                    tracking_rates.append(np.mean(rates) if rates else 0)
+                else:
+                    tracking_rates.append(0)
             
-            if len(all_errors) > 0:
-                ax.hist(all_errors, bins=bins, alpha=0.6, color=colors[exp_name],
-                       edgecolor='black', linewidth=0.3)
-                
-                # Add mean line
-                mean_val = np.mean(all_errors)
-                ax.axvline(mean_val, color=colors[exp_name], linestyle='--', linewidth=2)
-                
-                # Store stats
-                dataset_stats[dataset_name][exp_name] = {
-                    'mean': mean_val,
-                    'median': np.median(all_errors),
-                    'std': np.std(all_errors),
-                    'n_samples': len(all_errors)
-                }
+            offset = (i_exp - len(exp_names)/2 + 0.5) * width
+            ax.bar(x + offset, tracking_rates, width, label=exp_name, color=baseline.color, alpha=0.7)
         
-        # Title with sequence count
-        ax.set_title(f'{dataset_name.upper()} ({len(sequence_names)} seq)', fontsize=FONT_SIZE)
-        ax.set_xlabel(metric_label, fontsize=FONT_SIZE - 2)
-        ax.set_ylabel('Count', fontsize=FONT_SIZE - 2)
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
-        ax.tick_params(axis='both', labelsize=FONT_SIZE - 2)
-    
-    # Hide unused subplots
-    for idx in range(num_datasets, len(axs)):
-        axs[idx].set_visible(False)
-    
-    fig.suptitle(f'RPE {metric.capitalize()} Distribution by Dataset', fontsize=FONT_SIZE + 2)
-    fig.legend(handles=legend_handles, loc='upper center', ncol=min(len(exp_names), 6),
-              fontsize=FONT_SIZE, bbox_to_anchor=(0.5, 0.98))
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
-    
-    # Save figure
-    fig_path = os.path.join(figures_path, f'histogram_rpe_{metric}_detailed_per_dataset.png')
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-    plt.savefig(fig_path.replace('.png', '.pdf'), bbox_inches='tight')
-    plt.close(fig)  # Close to free memory
-    
-    return dataset_stats
+        ax.set_ylabel('Tracking Rate (%)')
+        ax.set_xlabel('Sequence')
+        ax.set_xticks(x)
+        ax.set_xticklabels(dataset_nicknames[dataset_name], rotation=45, ha='right')
+        ax.legend()
+        ax.grid(True, axis='y', alpha=0.3)
+        ax.set_ylim(0, 105)
+        
+        plt.title(f'Tracking Rate - {dataset_name}', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        plot_path = os.path.join(figures_path, f'{dataset_name}_tracking_rate.pdf')
+        plt.savefig(plot_path, format='pdf')
+        plt.show(block=False)
