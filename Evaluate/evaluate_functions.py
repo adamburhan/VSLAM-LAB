@@ -146,7 +146,6 @@ def evaluate_dataset(exp, dataset, overwrite=False):
 
 def evaluate_trajectory_rpe(trajectory_file, groundtruth_csv, evaluation_folder, exp_it, max_time_diff, traj_label):
     """Evaluate RPE for a single trajectory, returns (zip_trans, zip_rot) or (None, None) on failure"""
-    print("aaaaaaaaa")
     success_trans = evo_metric('rpe_trans', groundtruth_csv, trajectory_file, evaluation_folder, max_time_diff)
     if not success_trans[0]:
         return None, None, success_trans[1]
