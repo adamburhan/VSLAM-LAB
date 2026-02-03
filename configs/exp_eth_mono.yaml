@@ -1,5 +1,17 @@
-exp_eth_mono_droidslam:
+# exp_eth_mono_droidslam:
+#   Config: config_eth.yaml
+#   NumRuns: 5
+#   Parameters: {verbose: 0, mode: mono}
+#   Module: droidslam-dev
+
+exp_eth_mono_orbslam2:
   Config: config_eth.yaml
-  NumRuns: 5
+  NumRuns: 1
   Parameters: {verbose: 0, mode: mono}
-  Module: droidslam-dev
+  Module: orbslam2-dev
+
+# exp_eth_mono_mast3rslam:
+#   Config: config_eth.yaml
+#   NumRuns: 1
+#   Parameters: {verbose: 0, mode: mono}
+#   Module: mast3rslam-dev

@@ -89,6 +89,7 @@ def plot_trajectories(dataset_sequences, exp_names,
         legend_handles.append(Patch(color=colors[i_exp], label=exp_names[i_exp]), )
 
     i_traj = 0
+    x_max , y_max = 1, 1
     there_is_gt = False
     for i_dataset, (dataset_name, sequence_names) in enumerate(dataset_sequences.items()):
         for i_sequence, sequence_name in enumerate(sequence_names):
@@ -686,7 +687,9 @@ def num_tracked_frames(values, dataset_sequences, figures_path, experiments, sha
         axs[splt['id']].set_xticklabels([])
         axs[splt['id']].set_ylim(yticks)
         axs[splt['id']].tick_params(axis='y', labelsize=FONT_SIZE) 
-        axs[splt['id']].yaxis.set_minor_locator(ticker.MultipleLocator(max_rgb[sequence_name] / 4))
+        if max_rgb[sequence_name] > 0:
+            axs[splt['id']].yaxis.set_minor_locator(ticker.MultipleLocator(max_rgb[sequence_name] / 4))
+        #axs[splt['id']].yaxis.set_minor_locator(ticker.MultipleLocator(max_rgb[sequence_name] / 4))
         axs[splt['id']].set_yticks(yticks)
         if not shared_scale:    
             axs[splt['id']].set_yticks(yticks)
@@ -1377,5 +1380,96 @@ def plot_memory(figures_path, experiments, sequence_nicknames):
     #plot_table(experiments, 'TIME','num_frames')
 
 
+# ROBUSTNESS ANALYSIS
+def plot_tracking_timeline(dataset_sequences, experiments, tracking_status, comparison_path):
+    """
+    Plot tracking status timeline for each sequence.
+    Each subplot shows a horizontal strip with colored segments for each status.
+    """
+    # Count sequences
+    num_sequences = 0
+    for dataset_name, sequence_names in dataset_sequences.items():
+        for sequence_name in sequence_names:
+            num_sequences += 1
 
+    # Figure dimensions (same pattern as plot_trajectories)
+    num_rows = math.ceil(num_sequences / 5)
+    xSize = 12
+    ySize = num_rows * 2
 
+    fig, axs = plt.subplots(num_rows, 5, figsize=(xSize, ySize))
+    axs = axs.flatten()
+
+    # Status colors
+    status_colors = {
+        'INIT': 'green',
+        'TRACKING': 'blue',
+        'LOST': 'red',
+        'RELOCALIZED': 'orange',
+        'NOT_INITIALIZED': 'gray'
+    }
+
+    # Create legend handles
+    legend_handles = [Patch(color=c, label=s) for s, c in status_colors.items()]
+
+    exp_names = list(experiments.keys())
+
+    i_seq = 0
+    for dataset_name, sequence_names in dataset_sequences.items():
+        for sequence_name in sequence_names:
+            
+            y_offset = 0
+            y_labels = []
+            
+            for exp_name in exp_names:
+                # Get tracking status for this exp/sequence (use first run)
+                status_list = tracking_status.get(dataset_name, {}).get(sequence_name, {}).get(exp_name, [])
+                
+                if not status_list:
+                    continue
+                
+                df = status_list[0]  # First run
+                baseline = get_baseline(experiments[exp_name].module)
+                
+                # Plot each frame as a colored point
+                for status, color in status_colors.items():
+                    mask = df['status'] == status
+                    if mask.any():
+                        axs[i_seq].scatter(
+                            df.loc[mask, 'frame_idx'], 
+                            [y_offset] * mask.sum(),
+                            c=color, s=2, marker='|'
+                        )
+                
+                y_labels.append(baseline.name_label if hasattr(baseline, 'name_label') else exp_name)
+                y_offset += 1
+            
+            # Format subplot
+            axs[i_seq].set_yticks(range(len(y_labels)))
+            axs[i_seq].set_yticklabels(y_labels, fontsize=8)
+            axs[i_seq].set_ylim(-0.5, len(y_labels) - 0.5)
+            axs[i_seq].set_xlabel('Frame', fontsize=8)
+            axs[i_seq].spines['top'].set_visible(False)
+            axs[i_seq].spines['right'].set_visible(False)
+            
+            i_seq += 1
+
+    # Hide unused subplots
+    for j in range(i_seq, len(axs)):
+        axs[j].set_visible(False)
+
+    plt.tight_layout()
+    plot_name = os.path.join(comparison_path, "tracking_timeline.pdf")
+    plt.savefig(plot_name, format='pdf')
+
+    # Add titles after saving clean version
+    i_seq = 0
+    for dataset_name, sequence_names in dataset_sequences.items():
+        dataset = get_dataset(dataset_name, " ")
+        for sequence_name in sequence_names:
+            axs[i_seq].set_title(dataset.get_sequence_nickname(sequence_name), fontsize=10)
+            i_seq += 1
+
+    fig.legend(handles=legend_handles, loc='lower center', ncol=len(legend_handles), fontsize=10)
+    plt.subplots_adjust(bottom=0.15)
+    plt.show(block=False)
