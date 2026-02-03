@@ -1395,7 +1395,7 @@ def plot_tracking_timeline(dataset_sequences, experiments, tracking_status, comp
     # Figure dimensions (same pattern as plot_trajectories)
     num_rows = math.ceil(num_sequences / 5)
     xSize = 12
-    ySize = num_rows * 2
+    ySize = num_rows * 2.5  # Slightly taller to accommodate titles
 
     fig, axs = plt.subplots(num_rows, 5, figsize=(xSize, ySize))
     axs = axs.flatten()
@@ -1416,21 +1416,20 @@ def plot_tracking_timeline(dataset_sequences, experiments, tracking_status, comp
 
     i_seq = 0
     for dataset_name, sequence_names in dataset_sequences.items():
+        dataset = get_dataset(dataset_name, " ")  # Get dataset for nicknames
         for sequence_name in sequence_names:
-            
             y_offset = 0
             y_labels = []
-            
+
             for exp_name in exp_names:
                 # Get tracking status for this exp/sequence (use first run)
                 status_list = tracking_status.get(dataset_name, {}).get(sequence_name, {}).get(exp_name, [])
-                
                 if not status_list:
                     continue
-                
+
                 df = status_list[0]  # First run
                 baseline = get_baseline(experiments[exp_name].module)
-                
+
                 # Plot each frame as a colored point
                 for status, color in status_colors.items():
                     mask = df['status'] == status
@@ -1438,12 +1437,16 @@ def plot_tracking_timeline(dataset_sequences, experiments, tracking_status, comp
                         axs[i_seq].scatter(
                             df.loc[mask, 'frame_idx'], 
                             [y_offset] * mask.sum(),
-                            c=color, s=2, marker='|'
+                            c=color, s=20, marker='|', linewidths=2  # Larger markers
                         )
-                
+
                 y_labels.append(baseline.name_label if hasattr(baseline, 'name_label') else exp_name)
                 y_offset += 1
-            
+
+            # Add title with dataset and sequence name
+            seq_nickname = dataset.get_sequence_nickname(sequence_name)
+            axs[i_seq].set_title(f"{dataset_name}\n{seq_nickname}", fontsize=9, fontweight='bold')
+
             # Format subplot
             axs[i_seq].set_yticks(range(len(y_labels)))
             axs[i_seq].set_yticklabels(y_labels, fontsize=8)
@@ -1451,25 +1454,21 @@ def plot_tracking_timeline(dataset_sequences, experiments, tracking_status, comp
             axs[i_seq].set_xlabel('Frame', fontsize=8)
             axs[i_seq].spines['top'].set_visible(False)
             axs[i_seq].spines['right'].set_visible(False)
-            
+
             i_seq += 1
 
     # Hide unused subplots
     for j in range(i_seq, len(axs)):
         axs[j].set_visible(False)
 
+    # Add legend at bottom
+    fig.legend(handles=legend_handles, loc='lower center', ncol=len(legend_handles), 
+               fontsize=10, frameon=True, fancybox=True, shadow=True)
+    
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.12)  # Make room for legend
+    
     plot_name = os.path.join(comparison_path, "tracking_timeline.pdf")
-    plt.savefig(plot_name, format='pdf')
-
-    # Add titles after saving clean version
-    i_seq = 0
-    for dataset_name, sequence_names in dataset_sequences.items():
-        dataset = get_dataset(dataset_name, " ")
-        for sequence_name in sequence_names:
-            axs[i_seq].set_title(dataset.get_sequence_nickname(sequence_name), fontsize=10)
-            i_seq += 1
-
-    fig.legend(handles=legend_handles, loc='lower center', ncol=len(legend_handles), fontsize=10)
-    plt.subplots_adjust(bottom=0.15)
+    plt.savefig(plot_name, format='pdf', bbox_inches='tight')
+    
     plt.show(block=False)

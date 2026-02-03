@@ -3,7 +3,7 @@ from pathlib import Path
 from path_constants import VSLAM_LAB_DIR
 
 # ADD your imports here
-from Datasets.dataset_files.dataset_test import TEST_dataset
+from Datasets.dataset_files.dataset_thales import THALES_dataset
 
 # Monocular datasets
 from Datasets.dataset_files.dataset_tartanair import TARTANAIR_dataset
@@ -56,7 +56,7 @@ def get_dataset(dataset_name, benchmark_path):
     dataset_name = dataset_name.lower()
     switcher = {
         # ADD your datasets here
-        "test": lambda: TEST_dataset(benchmark_path),
+        "thales": lambda: THALES_dataset(benchmark_path),
         "tartanair": lambda: TARTANAIR_dataset(benchmark_path),
         "eth": lambda: ETH_dataset(benchmark_path),
         "rgbdtum": lambda: RGBDTUM_dataset(benchmark_path),

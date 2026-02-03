@@ -5,14 +5,14 @@
 #  Module: droidslam
 
 exp_demo_orbslam2_robustness:
-  Config: config_test.yaml
-  NumRuns: 3
+  Config: config_easy.yaml
+  NumRuns: 1
   Parameters: {verbose: 0}
   Module: orbslam2-dev
 
 exp_demo_mast3rslam_robustness:
-  Config: config_test.yaml
-  NumRuns: 3
+  Config: config_easy.yaml
+  NumRuns: 1
   Parameters: {verbose: 0}
   Module: mast3rslam-dev
   

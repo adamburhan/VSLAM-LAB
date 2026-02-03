@@ -8,10 +8,10 @@ from Datasets.DatasetVSLAMLab import DatasetVSLAMLab
 from PIL import Image
 
 
-class TEST_dataset(DatasetVSLAMLab):
+class THALES_dataset(DatasetVSLAMLab):
     def __init__(self, benchmark_path):
         # Initialize the dataset
-        super().__init__('test', benchmark_path)
+        super().__init__('thales', benchmark_path)
 
         # Load settings from .yaml file
         with open(self.yaml_file, 'r') as file:

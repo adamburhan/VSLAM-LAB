@@ -1,0 +1,6 @@
+exp_mast3rslam_thales:
+  Config: config_test.yaml
+  NumRuns: 1
+  Parameters: {verbose: 0}
+  Module: mast3rslam-dev
+  

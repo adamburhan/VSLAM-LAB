@@ -1,0 +1,8 @@
+dataset_folder_raw: /home/adamb14/scratch/VSLAM-LAB-Benchmark/THALES
+dataset_name: thales
+resolution_scale: 1.0
+rgb_hz: 60.0
+sequence_names:
+- Untitled_2406271408_0000
+- static_scene_video_assist_0001_11sec_to_23sec
+- static_scene_with_wind_and_glasses_video_assist_0002_1min14sec_to_1min55sec
